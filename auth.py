@@ -7,7 +7,7 @@ def require_password() -> None:
     if st.session_state.get("authed"):
         return
 
-    st.title("🔐 OFmedia 廣告儀表板")
+    st.title("🔐 Ocean Fishooter 廣告儀表板")
     st.caption("請輸入密碼以繼續")
 
     pwd = st.text_input("密碼", type="password", key="_pwd_input")

@@ -16,8 +16,8 @@ from data import (load_unified, load_meta_raw, load_asa_raw,
                   load_google_raw, RAW_TABS)
 
 st.set_page_config(
-    page_title="OFmedia 廣告儀表板",
-    page_icon="🎣",
+    page_title="Ocean Fishooter 廣告儀表板",
+    page_icon="🎰",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -152,7 +152,7 @@ def show_kpis(df: pd.DataFrame, df_prev: pd.DataFrame = None) -> None:
             f'</div>'
         )
 
-    # 規模指標(藍)
+    # 規模指標(藍)── 4 個並排
     st.markdown('<div class="kpi-section">💵 規模指標</div>', unsafe_allow_html=True)
     c1, c2, c3, c4 = st.columns(4)
     c1.markdown(render("💰 花費", f"${curr['spend']:,.0f}", "spend", "vol"),
@@ -164,21 +164,18 @@ def show_kpis(df: pd.DataFrame, df_prev: pd.DataFrame = None) -> None:
     c4.markdown(render("📲 安裝", f"{curr['installs']:,.0f}", "installs", "vol"),
                 unsafe_allow_html=True)
 
-    # 效率指標(黃)
+    # 效率指標(黃)── 4 個並排,跟上排對齊
     st.markdown('<div class="kpi-section">🎯 效率指標</div>', unsafe_allow_html=True)
-    c5, c6, c7, c8, c9 = st.columns(5)
-    c5.markdown(render("💎 CPI", f"${curr['cpi']:.2f}" if curr['cpi'] > 0 else "—",
+    c5, c6, c7, c8 = st.columns(4)
+    c5.markdown(render("📡 CPM", f"${curr['cpm']:.2f}", "cpm", "rate",
+                       inverse=True, color="#A16207"), unsafe_allow_html=True)
+    c6.markdown(render("📣 CTR", f"{curr['ctr']:.2f}%", "ctr", "rate",
+                       color="#A16207"), unsafe_allow_html=True)
+    c7.markdown(render("🔁 CVR", f"{curr['cvr']:.2f}%", "cvr", "rate",
+                       color="#A16207"), unsafe_allow_html=True)
+    c8.markdown(render("💎 CPI", f"${curr['cpi']:.2f}" if curr['cpi'] > 0 else "—",
                        "cpi", "rate", inverse=True, color="#A16207"),
                 unsafe_allow_html=True)
-    c6.markdown(render("🖱️ CPC", f"${curr['cpc']:.2f}" if curr['cpc'] > 0 else "—",
-                       "cpc", "rate", inverse=True, color="#A16207"),
-                unsafe_allow_html=True)
-    c7.markdown(render("📡 CPM", f"${curr['cpm']:.2f}", "cpm", "rate",
-                       inverse=True, color="#A16207"), unsafe_allow_html=True)
-    c8.markdown(render("📣 CTR", f"{curr['ctr']:.2f}%", "ctr", "rate",
-                       color="#A16207"), unsafe_allow_html=True)
-    c9.markdown(render("🔁 CVR", f"{curr['cvr']:.2f}%", "cvr", "rate",
-                       color="#A16207"), unsafe_allow_html=True)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -625,7 +622,7 @@ if df_raw is None or df_raw.empty:
     st.stop()
 
 with st.sidebar:
-    st.markdown("### 🎣 OFmedia")
+    st.markdown("### 🎰 Ocean Fishooter")
 
     # 資料新鮮度
     min_date = df_raw["date"].min()
@@ -661,13 +658,32 @@ with st.sidebar:
         max_value=max_date.date(),
     )
 
-    # OS 篩選
-    all_os = sorted(df_raw["os"].dropna().unique().tolist())
-    os_filter = st.multiselect("OS", all_os, default=all_os)
+    # OS 篩選 ── 把雜訊值歸成「其他」
+    def _norm_os(s):
+        s = str(s).strip().upper()
+        if s in ("IOS", "I"):
+            return "iOS"
+        if s in ("AND", "ANDROID"):
+            return "Android"
+        return "其他"
 
-    # Country 篩選
+    df_raw["_os_group"] = df_raw["os"].apply(_norm_os)
+    os_choice = st.radio(
+        "OS",
+        ["全部", "iOS", "Android", "其他"],
+        horizontal=True,
+        index=0,
+    )
+
+    # Country 篩選收進 expander
     all_country = sorted(df_raw["country"].dropna().unique().tolist())
-    country_filter = st.multiselect("國家", all_country, default=all_country)
+    with st.expander(f"🌍 國家篩選(目前:全部 {len(all_country)} 國)", expanded=False):
+        country_filter = st.multiselect(
+            "選擇國家(空白 = 全部)",
+            all_country,
+            default=[],
+            label_visibility="collapsed",
+        )
 
     st.markdown("---")
     if len(date_range) == 2:
@@ -698,17 +714,17 @@ if len(date_range) == 2:
     df_prev = df_raw[(df_raw["date"].dt.date >= prev_start)
                      & (df_raw["date"].dt.date <= prev_end)]
 
-if os_filter:
-    df = df[df["os"].isin(os_filter)]
-    df_prev = df_prev[df_prev["os"].isin(os_filter)] if not df_prev.empty else df_prev
+if os_choice != "全部":
+    df = df[df["_os_group"] == os_choice]
+    df_prev = df_prev[df_prev["_os_group"] == os_choice] if not df_prev.empty else df_prev
 if country_filter:
     df = df[df["country"].isin(country_filter)]
     df_prev = df_prev[df_prev["country"].isin(country_filter)] if not df_prev.empty else df_prev
 
-st.title("🎣 OFmedia 廣告儀表板")
+st.title("🌊 Ocean Fishooter 廣告儀表板")
+_country_disp = f"{len(country_filter)} 國" if country_filter else f"全部 {len(all_country)} 國"
 st.caption(
-    f"Ocean Fishooter UA 投放總覽 | 6 媒體 × {len(country_filter)} 國 × "
-    f"{', '.join(os_filter) or '全 OS'}"
+    f"UA 投放總覽 | 6 媒體 × {_country_disp} × OS:{os_choice}"
 )
 st.markdown("---")
 
