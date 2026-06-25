@@ -658,7 +658,27 @@ with st.sidebar:
         max_value=max_date.date(),
     )
 
-    # OS 篩選 ── 把雜訊值歸成「其他」
+    # ── 國家篩選(收進 expander)──
+    all_country = sorted(df_raw["country"].dropna().unique().tolist())
+    with st.expander(f"🌍 國家(全部 {len(all_country)} 國)", expanded=False):
+        country_filter = st.multiselect(
+            "選擇國家(空白 = 全部)",
+            all_country,
+            default=[],
+            label_visibility="collapsed",
+        )
+
+    # ── 媒體篩選(收進 expander,預設全選)──
+    all_media = sorted(df_raw["media"].dropna().unique().tolist())
+    with st.expander(f"📱 媒體(全部 {len(all_media)} 家)", expanded=False):
+        media_filter = st.multiselect(
+            "選擇媒體(空白 = 全部)",
+            all_media,
+            default=[],
+            label_visibility="collapsed",
+        )
+
+    # ── OS 篩選(把雜訊值歸成「其他」)──
     def _norm_os(s):
         s = str(s).strip().upper()
         if s in ("IOS", "I"):
@@ -674,16 +694,6 @@ with st.sidebar:
         horizontal=True,
         index=0,
     )
-
-    # Country 篩選收進 expander
-    all_country = sorted(df_raw["country"].dropna().unique().tolist())
-    with st.expander(f"🌍 國家篩選(目前:全部 {len(all_country)} 國)", expanded=False):
-        country_filter = st.multiselect(
-            "選擇國家(空白 = 全部)",
-            all_country,
-            default=[],
-            label_visibility="collapsed",
-        )
 
     st.markdown("---")
     if len(date_range) == 2:
@@ -720,18 +730,20 @@ if os_choice != "全部":
 if country_filter:
     df = df[df["country"].isin(country_filter)]
     df_prev = df_prev[df_prev["country"].isin(country_filter)] if not df_prev.empty else df_prev
+if media_filter:
+    df = df[df["media"].isin(media_filter)]
+    df_prev = df_prev[df_prev["media"].isin(media_filter)] if not df_prev.empty else df_prev
 
 st.title("🌊 Ocean Fishooter 廣告儀表板")
 _country_disp = f"{len(country_filter)} 國" if country_filter else f"全部 {len(all_country)} 國"
+_media_disp = f"{len(media_filter)} 媒體" if media_filter else f"全部 {len(all_media)} 媒體"
 st.caption(
-    f"UA 投放總覽 | 6 媒體 × {_country_disp} × OS:{os_choice}"
+    f"UA 投放總覽 | {_media_disp} × {_country_disp} × OS:{os_choice}"
 )
 st.markdown("---")
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3 = st.tabs([
     "🎯 投放總覽",
-    "📊 媒體成效",
-    "🌍 地區 × OS",
     "🎬 Campaign",
     "🔍 媒體深度",
 ])
@@ -749,39 +761,11 @@ with tab1:
     show_alerts(df, df_prev)
 
 with tab2:
-    st.subheader("📋 6 媒體並排對比")
-    show_media_compare(df)
-    st.markdown("---")
-    st.subheader("📈 各媒體每日花費趨勢")
-    daily_media = df.groupby(["date", "media"]).agg(
-        spend=("spend", "sum"),
-        installs=("installs", "sum"),
-    ).reset_index()
-    daily_media["cpi"] = (daily_media["spend"] / daily_media["installs"]).replace(
-        [float("inf"), float("-inf")], 0).fillna(0)
-    metric_choice = st.radio("看哪個指標", ["spend", "installs", "cpi"],
-                              format_func=lambda x: {"spend": "花費",
-                                                       "installs": "安裝",
-                                                       "cpi": "CPI"}[x],
-                              horizontal=True, key="media_trend_metric")
-    fig = px.line(daily_media, x="date", y=metric_choice, color="media",
-                   color_discrete_map=MEDIA_COLORS,
-                   labels={metric_choice: {"spend": "花費($)",
-                                            "installs": "安裝",
-                                            "cpi": "CPI($)"}[metric_choice],
-                            "date": "日期"})
-    fig.update_layout(height=380, plot_bgcolor="white", margin=dict(t=20, b=10))
-    st.plotly_chart(fig, use_container_width=True)
+    campaign_media_options = ["全部"] + sorted(df["media"].unique().tolist())
+    campaign_media = st.selectbox("篩選媒體", campaign_media_options, key="campaign_media")
+    show_campaign_table(df, campaign_media)
 
 with tab3:
-    show_geo_os(df)
-
-with tab4:
-    media_options = ["全部"] + sorted(df["media"].unique().tolist())
-    media_filter = st.selectbox("篩選媒體", media_options, key="campaign_media")
-    show_campaign_table(df, media_filter)
-
-with tab5:
     sub_tab = st.radio("選擇媒體深度", ["Meta", "ASA", "Google"],
                         horizontal=True, key="deep_tab")
     if len(date_range) == 2:
