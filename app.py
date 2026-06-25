@@ -463,17 +463,28 @@ def show_campaign_table(df: pd.DataFrame, media_filter: str = "全部") -> None:
 #  深度頁籤
 # ──────────────────────────────────────────────────────────────────────
 _STATUS_DISPLAY = {
+    # 投放中
     "active": "🟢 投放中",
     "delivering": "🟢 投放中",
+    "enabled": "🟢 投放中",
+    # 暫停 / 未啟用
     "paused": "⏸️ 暫停",
+    "inactive": "⏸️ 暫停",
+    "not_delivering": "⏸️ 暫停",
+    # 已歸檔 / 刪除
     "archived": "📦 已封存",
     "deleted": "🗑️ 已刪除",
-    "not_delivering": "🔴 未投放",
-    "learning": "📚 學習中",
+    "removed": "🗑️ 已刪除",
+    # 審查中
     "in_review": "🔍 審查中",
     "pending_review": "🔍 審查中",
+    "learning": "📚 學習中",
+    # 未通過
     "disapproved": "❌ 未通過",
     "rejected": "❌ 未通過",
+    # 其他
+    "campaign_paused": "⏸️ Campaign 暫停",
+    "adset_paused": "⏸️ Ad Set 暫停",
 }
 
 
