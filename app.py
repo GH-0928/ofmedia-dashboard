@@ -462,6 +462,38 @@ def show_campaign_table(df: pd.DataFrame, media_filter: str = "全部") -> None:
 # ──────────────────────────────────────────────────────────────────────
 #  深度頁籤
 # ──────────────────────────────────────────────────────────────────────
+_STATUS_DISPLAY = {
+    "active": "🟢 投放中",
+    "delivering": "🟢 投放中",
+    "paused": "⏸️ 暫停",
+    "archived": "📦 已封存",
+    "deleted": "🗑️ 已刪除",
+    "not_delivering": "🔴 未投放",
+    "learning": "📚 學習中",
+    "in_review": "🔍 審查中",
+    "pending_review": "🔍 審查中",
+    "disapproved": "❌ 未通過",
+    "rejected": "❌ 未通過",
+}
+
+
+def _status_zh(s: str) -> str:
+    if not s or pd.isna(s):
+        return "—"
+    return _STATUS_DISPLAY.get(str(s).strip().lower(), str(s))
+
+
+def _latest_status_map(df: pd.DataFrame, group_col: str) -> dict:
+    """取每組(如每個 ad)在期間內最新日期的 status,回傳 dict。"""
+    if df.empty or "status" not in df.columns:
+        return {}
+    sub = df[df["status"].notna() & (df["status"].astype(str).str.strip() != "")]
+    if sub.empty:
+        return {}
+    latest = sub.sort_values("date").groupby(group_col).tail(1)
+    return dict(zip(latest[group_col], latest["status"]))
+
+
 def _meta_metrics(df: pd.DataFrame, group_col: str) -> pd.DataFrame:
     """共用:計算 Meta drill-down 各層級的標準指標(花費/安裝/CPI/CTR/CVR/CPM)。"""
     g = df.groupby(group_col).agg(
@@ -607,8 +639,13 @@ def deep_dive_meta(date_start, date_end, os_choice="全部", country_choice="全
             st.warning("此 Ad Group 無素材資料")
             return
         stats = _meta_metrics(sub, "ad")
-        disp = stats[["ad", "spend", "installs", "CPI($)", "CTR(%)", "CVR(%)", "CPM($)"]].copy()
-        disp.columns = ["素材(Ad)", "花費($)", "安裝", "CPI($)", "CTR(%)", "CVR(%)", "CPM($)"]
+        # 加狀態欄(各素材最新一筆的 status)
+        status_map = _latest_status_map(sub, "ad")
+        stats["狀態"] = stats["ad"].map(lambda x: _status_zh(status_map.get(x, "")))
+        disp = stats[["狀態", "ad", "spend", "installs", "CPI($)",
+                       "CTR(%)", "CVR(%)", "CPM($)"]].copy()
+        disp.columns = ["狀態", "素材(Ad)", "花費($)", "安裝", "CPI($)",
+                         "CTR(%)", "CVR(%)", "CPM($)"]
         disp["花費($)"] = disp["花費($)"].apply(lambda x: f"${x:,.0f}")
         disp["安裝"] = disp["安裝"].apply(lambda x: f"{int(x):,}")
         st.dataframe(disp, hide_index=True, use_container_width=True, height=460)
