@@ -503,14 +503,33 @@ def _meta_render_table(stats: pd.DataFrame, key_col: str, label: str, table_key:
     return -1
 
 
-def deep_dive_meta(date_start, date_end) -> None:
+def _apply_raw_filters(df: pd.DataFrame, os_choice: str, country_choice: str) -> pd.DataFrame:
+    """套用 sidebar 的 OS / 國家篩選到 raw DataFrame。"""
+    if df.empty:
+        return df
+    if os_choice != "全部" and "os" in df.columns:
+        def _norm(s):
+            s = str(s).strip().upper()
+            if s in ("IOS", "I"):
+                return "iOS"
+            if s in ("AND", "ANDROID"):
+                return "Android"
+            return "其他"
+        df = df[df["os"].apply(_norm) == os_choice]
+    if country_choice != "全部" and "country" in df.columns:
+        df = df[df["country"] == country_choice]
+    return df
+
+
+def deep_dive_meta(date_start, date_end, os_choice="全部", country_choice="全部") -> None:
     df = load_meta_raw()
     if df.empty:
         st.info("Meta_raw 無資料")
         return
     df = df[(df["date"].dt.date >= date_start) & (df["date"].dt.date <= date_end)]
+    df = _apply_raw_filters(df, os_choice, country_choice)
     if df.empty:
-        st.info("此期間 Meta 無資料")
+        st.info("此期間 Meta 無資料(可能受篩選影響)")
         return
 
     ss = st.session_state
@@ -587,14 +606,15 @@ def deep_dive_meta(date_start, date_end) -> None:
         st.dataframe(disp, hide_index=True, use_container_width=True, height=460)
 
 
-def deep_dive_asa(date_start, date_end) -> None:
+def deep_dive_asa(date_start, date_end, os_choice="全部", country_choice="全部") -> None:
     df = load_asa_raw()
     if df.empty:
         st.info("ASA_raw 無資料")
         return
     df = df[(df["date"].dt.date >= date_start) & (df["date"].dt.date <= date_end)]
+    df = _apply_raw_filters(df, os_choice, country_choice)
     if df.empty:
-        st.info("此期間 ASA 無資料")
+        st.info("此期間 ASA 無資料(可能受篩選影響)")
         return
 
     st.subheader("🔑 關鍵字(Keyword)排行 ─ 依花費")
@@ -646,14 +666,15 @@ def deep_dive_asa(date_start, date_end) -> None:
                      hide_index=True, use_container_width=True)
 
 
-def deep_dive_google(date_start, date_end) -> None:
+def deep_dive_google(date_start, date_end, os_choice="全部", country_choice="全部") -> None:
     df = load_google_raw()
     if df.empty:
         st.info("Google_raw 無資料")
         return
     df = df[(df["date"].dt.date >= date_start) & (df["date"].dt.date <= date_end)]
+    df = _apply_raw_filters(df, os_choice, country_choice)
     if df.empty:
-        st.info("此期間 Google 無資料")
+        st.info("此期間 Google 無資料(可能受篩選影響)")
         return
 
     st.subheader("🌐 Network 表現對比(搜尋 / 多媒體聯播網)")
@@ -832,7 +853,7 @@ with tab2:
     if deep_media == "Meta":
         # Meta 用三層 drill-down(Campaign → Ad Group → Ad)
         if len(date_range) == 2:
-            deep_dive_meta(date_range[0], date_range[1])
+            deep_dive_meta(date_range[0], date_range[1], os_choice, country_choice)
         else:
             st.warning("請選擇完整日期範圍")
     else:
@@ -844,8 +865,8 @@ with tab2:
         if len(date_range) == 2:
             if deep_media == "ASA":
                 st.markdown("---")
-                deep_dive_asa(date_range[0], date_range[1])
+                deep_dive_asa(date_range[0], date_range[1], os_choice, country_choice)
             elif deep_media == "Google":
                 st.markdown("---")
-                deep_dive_google(date_range[0], date_range[1])
+                deep_dive_google(date_range[0], date_range[1], os_choice, country_choice)
         # TikTok / Applovin / Moloco 沒有獨家欄位,只看 campaign
