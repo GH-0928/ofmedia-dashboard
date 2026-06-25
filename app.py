@@ -552,13 +552,21 @@ def deep_dive_meta(date_start, date_end, os_choice="全部", country_choice="全
     )
 
     # 返回按鈕
-    c1, c2 = st.columns([1, 5])
-    with c1:
-        if ss.meta_drill_ad_group:
+    if ss.meta_drill_ad_group:
+        # 在素材層:給兩個返回選項
+        c1, c2, _ = st.columns([1.5, 1.8, 4])
+        with c1:
             if st.button("← 返回 Ad Group", key="back_ag"):
                 ss.meta_drill_ad_group = None
                 st.rerun()
-        elif ss.meta_drill_campaign:
+        with c2:
+            if st.button("↩ 回到 Campaign 清單", key="back_to_cmp"):
+                ss.meta_drill_campaign = None
+                ss.meta_drill_ad_group = None
+                st.rerun()
+    elif ss.meta_drill_campaign:
+        c1, _ = st.columns([1.5, 5])
+        with c1:
             if st.button("← 返回 Campaign", key="back_cmp"):
                 ss.meta_drill_campaign = None
                 st.rerun()
