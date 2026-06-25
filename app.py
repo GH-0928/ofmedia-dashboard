@@ -462,6 +462,47 @@ def show_campaign_table(df: pd.DataFrame, media_filter: str = "全部") -> None:
 # ──────────────────────────────────────────────────────────────────────
 #  深度頁籤
 # ──────────────────────────────────────────────────────────────────────
+def _meta_metrics(df: pd.DataFrame, group_col: str) -> pd.DataFrame:
+    """共用:計算 Meta drill-down 各層級的標準指標(花費/安裝/CPI/CTR/CVR/CPM)。"""
+    g = df.groupby(group_col).agg(
+        spend=("spend", "sum"),
+        installs=("installs", "sum"),
+        clicks=("clicks", "sum"),
+        impressions=("impressions", "sum"),
+    ).reset_index()
+    g["CPI($)"] = (g["spend"] / g["installs"]).replace(
+        [float("inf"), float("-inf")], 0).fillna(0).round(2)
+    g["CTR(%)"] = (g["clicks"] / g["impressions"] * 100).replace(
+        [float("inf"), float("-inf")], 0).fillna(0).round(2)
+    g["CVR(%)"] = (g["installs"] / g["clicks"] * 100).replace(
+        [float("inf"), float("-inf")], 0).fillna(0).round(2)
+    g["CPM($)"] = (g["spend"] / g["impressions"] * 1000).replace(
+        [float("inf"), float("-inf")], 0).fillna(0).round(2)
+    return g.sort_values("spend", ascending=False)
+
+
+def _meta_render_table(stats: pd.DataFrame, key_col: str, label: str, table_key: str) -> int:
+    """顯示帶選取的 dataframe,回傳被點擊的列索引(-1 = 沒選)。"""
+    disp = stats[[key_col, "spend", "installs", "CPI($)", "CTR(%)", "CVR(%)", "CPM($)"]].copy()
+    disp.columns = [label, "花費($)", "安裝", "CPI($)", "CTR(%)", "CVR(%)", "CPM($)"]
+    disp["花費($)"] = disp["花費($)"].apply(lambda x: f"${x:,.0f}")
+    disp["安裝"] = disp["安裝"].apply(lambda x: f"{int(x):,}")
+    event = st.dataframe(
+        disp,
+        hide_index=True,
+        use_container_width=True,
+        height=460,
+        on_select="rerun",
+        selection_mode="single-row",
+        key=table_key,
+    )
+    if event and getattr(event, "selection", None):
+        rows = event.selection.get("rows", [])
+        if rows:
+            return rows[0]
+    return -1
+
+
 def deep_dive_meta(date_start, date_end) -> None:
     df = load_meta_raw()
     if df.empty:
@@ -472,55 +513,78 @@ def deep_dive_meta(date_start, date_end) -> None:
         st.info("此期間 Meta 無資料")
         return
 
-    st.subheader("🎬 Meta 素材(Ad)排行 ─ 依花費")
-    if "ad" in df.columns:
-        ad_stats = df.groupby("ad").agg(
-            spend=("spend", "sum"),
-            installs=("installs", "sum"),
-            impressions=("impressions", "sum"),
-            clicks=("clicks", "sum"),
-        )
-        if "成果 ROAS" in df.columns:
-            roas_w = df.groupby("ad").apply(
-                lambda g: (g["成果 ROAS"] * g["spend"]).sum() / g["spend"].sum()
-                if g["spend"].sum() > 0 else None
-            )
-            ad_stats["ROAS"] = roas_w
-        if "購買次數" in df.columns:
-            ad_stats["購買數"] = df.groupby("ad")["購買次數"].sum()
-        ad_stats["CPI($)"] = (ad_stats["spend"] / ad_stats["installs"]).replace(
-            [float("inf"), float("-inf")], 0).fillna(0).round(2)
-        ad_stats["CTR(%)"] = (ad_stats["clicks"] / ad_stats["impressions"] * 100).fillna(0).round(2)
-        ad_stats = ad_stats.reset_index().sort_values("spend", ascending=False).head(30)
-        ad_stats["花費($)"] = ad_stats["spend"].apply(lambda x: f"${x:,.0f}")
-        ad_stats["安裝"] = ad_stats["installs"].apply(lambda x: f"{int(x):,}")
-        cols = ["ad", "花費($)", "安裝", "CPI($)", "CTR(%)"]
-        if "ROAS" in ad_stats.columns:
-            ad_stats["ROAS"] = ad_stats["ROAS"].apply(
-                lambda x: f"{x:.2f}" if pd.notna(x) else "—")
-            cols.insert(4, "ROAS")
-        if "購買數" in ad_stats.columns:
-            ad_stats["購買數"] = ad_stats["購買數"].apply(lambda x: f"{int(x):,}")
-            cols.append("購買數")
-        st.dataframe(ad_stats[cols], hide_index=True, use_container_width=True, height=460)
+    ss = st.session_state
+    if "meta_drill_campaign" not in ss:
+        ss.meta_drill_campaign = None
+    if "meta_drill_ad_group" not in ss:
+        ss.meta_drill_ad_group = None
 
-    st.markdown("---")
-    st.subheader("📦 Ad Group 表現")
-    if "ad_group" in df.columns:
-        ag = df.groupby("ad_group").agg(
-            spend=("spend", "sum"),
-            installs=("installs", "sum"),
-            clicks=("clicks", "sum"),
-            impressions=("impressions", "sum"),
-        ).reset_index()
-        ag["CPI($)"] = (ag["spend"] / ag["installs"]).replace(
-            [float("inf"), float("-inf")], 0).fillna(0).round(2)
-        ag["CTR(%)"] = (ag["clicks"] / ag["impressions"] * 100).fillna(0).round(2)
-        ag = ag.sort_values("spend", ascending=False).head(20)
-        ag["花費($)"] = ag["spend"].apply(lambda x: f"${x:,.0f}")
-        ag["安裝"] = ag["installs"].apply(lambda x: f"{int(x):,}")
-        st.dataframe(ag[["ad_group", "花費($)", "安裝", "CPI($)", "CTR(%)"]],
-                     hide_index=True, use_container_width=True)
+    # 麵包屑
+    crumbs = ["📦 Campaign"]
+    if ss.meta_drill_campaign:
+        crumbs.append(f"📁 {ss.meta_drill_campaign}")
+    if ss.meta_drill_ad_group:
+        crumbs.append(f"🎬 {ss.meta_drill_ad_group}")
+    st.markdown(
+        f"<div style='padding:8px 12px;background:#1E293B;border-left:3px solid "
+        f"#3B82F6;border-radius:6px;margin-bottom:10px;font-size:13px;color:#CBD5E1'>"
+        f"{' &nbsp;›&nbsp; '.join(crumbs)}</div>",
+        unsafe_allow_html=True,
+    )
+
+    # 返回按鈕
+    c1, c2 = st.columns([1, 5])
+    with c1:
+        if ss.meta_drill_ad_group:
+            if st.button("← 返回 Ad Group", key="back_ag"):
+                ss.meta_drill_ad_group = None
+                st.rerun()
+        elif ss.meta_drill_campaign:
+            if st.button("← 返回 Campaign", key="back_cmp"):
+                ss.meta_drill_campaign = None
+                st.rerun()
+
+    # ── 第 1 層:Campaign ──
+    if ss.meta_drill_campaign is None:
+        st.caption("👇 **點任一列查看該 Campaign 的 Ad Group**")
+        stats = _meta_metrics(df, "campaign")
+        idx = _meta_render_table(stats, "campaign", "Campaign", "tbl_meta_campaign")
+        if idx >= 0:
+            ss.meta_drill_campaign = stats.iloc[idx]["campaign"]
+            st.rerun()
+
+    # ── 第 2 層:Ad Group ──
+    elif ss.meta_drill_ad_group is None:
+        sub = df[df["campaign"] == ss.meta_drill_campaign]
+        st.caption(f"📁 **Campaign:** `{ss.meta_drill_campaign}` ─ 👇 點任一列查看該 Ad Group 的素材")
+        if sub.empty or "ad_group" not in sub.columns:
+            st.warning("此 Campaign 無 Ad Group 資料")
+            return
+        stats = _meta_metrics(sub, "ad_group")
+        idx = _meta_render_table(stats, "ad_group", "Ad Group", "tbl_meta_ad_group")
+        if idx >= 0:
+            ss.meta_drill_ad_group = stats.iloc[idx]["ad_group"]
+            st.rerun()
+
+    # ── 第 3 層:素材(Ad)──
+    else:
+        sub = df[
+            (df["campaign"] == ss.meta_drill_campaign)
+            & (df["ad_group"] == ss.meta_drill_ad_group)
+        ]
+        st.caption(
+            f"📁 **Campaign:** `{ss.meta_drill_campaign}` &nbsp;|&nbsp; "
+            f"🎬 **Ad Group:** `{ss.meta_drill_ad_group}`"
+        )
+        if sub.empty or "ad" not in sub.columns:
+            st.warning("此 Ad Group 無素材資料")
+            return
+        stats = _meta_metrics(sub, "ad")
+        disp = stats[["ad", "spend", "installs", "CPI($)", "CTR(%)", "CVR(%)", "CPM($)"]].copy()
+        disp.columns = ["素材(Ad)", "花費($)", "安裝", "CPI($)", "CTR(%)", "CVR(%)", "CPM($)"]
+        disp["花費($)"] = disp["花費($)"].apply(lambda x: f"${x:,.0f}")
+        disp["安裝"] = disp["安裝"].apply(lambda x: f"{int(x):,}")
+        st.dataframe(disp, hide_index=True, use_container_width=True, height=460)
 
 
 def deep_dive_asa(date_start, date_end) -> None:
@@ -765,19 +829,23 @@ with tab2:
         horizontal=True, key="deep_tab",
     )
 
-    # 1. Campaign 排行(全媒體共通,依當前篩選)
-    st.subheader(f"🎬 {deep_media} Campaign 排行")
-    show_campaign_table(df, deep_media)
-
-    # 2. 各媒體獨家深度
-    if len(date_range) == 2:
-        st.markdown("---")
-        if deep_media == "Meta":
+    if deep_media == "Meta":
+        # Meta 用三層 drill-down(Campaign → Ad Group → Ad)
+        if len(date_range) == 2:
             deep_dive_meta(date_range[0], date_range[1])
-        elif deep_media == "ASA":
-            deep_dive_asa(date_range[0], date_range[1])
-        elif deep_media == "Google":
-            deep_dive_google(date_range[0], date_range[1])
-        # TikTok / Applovin / Moloco 沒有獨家欄位,只看 campaign
+        else:
+            st.warning("請選擇完整日期範圍")
     else:
-        st.warning("請選擇完整日期範圍")
+        # 其他媒體:先顯示 Campaign 排行
+        st.subheader(f"🎬 {deep_media} Campaign 排行")
+        show_campaign_table(df, deep_media)
+
+        # ASA / Google 還有獨家深度
+        if len(date_range) == 2:
+            if deep_media == "ASA":
+                st.markdown("---")
+                deep_dive_asa(date_range[0], date_range[1])
+            elif deep_media == "Google":
+                st.markdown("---")
+                deep_dive_google(date_range[0], date_range[1])
+        # TikTok / Applovin / Moloco 沒有獨家欄位,只看 campaign
