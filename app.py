@@ -52,7 +52,7 @@ def _kpi_pack(df: pd.DataFrame) -> dict:
     }
 
 
-def _sparkline_svg(values: list, color: str = "#1D4ED8") -> str:
+def _sparkline_svg(values: list, color: str = "#60A5FA") -> str:
     if not values or len(values) < 2:
         return ""
     width, height, pad = 90, 40, 4
@@ -103,22 +103,22 @@ def _compute_sparks(df: pd.DataFrame) -> dict:
 _KPI_CSS = """
 <style>
 .kpi-card{
-    background:#fff;border:1px solid #E5E7EB;border-radius:10px;
+    background:#1E293B;border:1px solid #334155;border-radius:10px;
     padding:10px 14px;margin-bottom:10px;
-    box-shadow:0 1px 2px rgba(0,0,0,0.04);
+    box-shadow:0 1px 3px rgba(0,0,0,0.3);
     display:flex;align-items:center;gap:10px;min-height:84px;
 }
-.kpi-vol{background:#F0F7FF;border-color:#CFE2F8}
-.kpi-rate{background:#FFFBEB;border-color:#F4E5B8}
+.kpi-vol{background:linear-gradient(135deg,#1E3A5F 0%,#1E293B 100%);border-color:#3B82F6}
+.kpi-rate{background:linear-gradient(135deg,#3F2A0E 0%,#1E293B 100%);border-color:#D97706}
 .kpi-body{flex:1;min-width:0}
-.kpi-label{font-size:13.5px;font-weight:600;color:#1F2937;margin-bottom:2px}
-.kpi-value{font-size:22px;font-weight:700;color:#0F172A;line-height:1.1}
+.kpi-label{font-size:13.5px;font-weight:600;color:#CBD5E1;margin-bottom:2px}
+.kpi-value{font-size:22px;font-weight:700;color:#F8FAFC;line-height:1.1}
 .kpi-delta{font-size:11.5px;margin-top:3px;font-weight:500}
-.kpi-up-good{color:#15803D}
-.kpi-down-good{color:#B91C1C}
-.kpi-up-bad{color:#B91C1C}
-.kpi-down-bad{color:#15803D}
-.kpi-section{font-size:15px;font-weight:700;margin:14px 0 8px 0;color:#1F2937}
+.kpi-up-good{color:#4ADE80}
+.kpi-down-good{color:#F87171}
+.kpi-up-bad{color:#F87171}
+.kpi-down-bad{color:#4ADE80}
+.kpi-section{font-size:15px;font-weight:700;margin:14px 0 8px 0;color:#F1F5F9}
 </style>
 """
 
@@ -130,7 +130,7 @@ def show_kpis(df: pd.DataFrame, df_prev: pd.DataFrame = None) -> None:
 
     st.markdown(_KPI_CSS, unsafe_allow_html=True)
 
-    def render(label, value, key, category, inverse=False, color="#1D4ED8"):
+    def render(label, value, key, category, inverse=False, color="#60A5FA"):
         delta_html = ""
         if prev and prev.get(key):
             pct = (curr[key] - prev[key]) / prev[key] * 100
@@ -168,13 +168,13 @@ def show_kpis(df: pd.DataFrame, df_prev: pd.DataFrame = None) -> None:
     st.markdown('<div class="kpi-section">🎯 效率指標</div>', unsafe_allow_html=True)
     c5, c6, c7, c8 = st.columns(4)
     c5.markdown(render("📡 CPM", f"${curr['cpm']:.2f}", "cpm", "rate",
-                       inverse=True, color="#A16207"), unsafe_allow_html=True)
+                       inverse=True, color="#FBBF24"), unsafe_allow_html=True)
     c6.markdown(render("📣 CTR", f"{curr['ctr']:.2f}%", "ctr", "rate",
-                       color="#A16207"), unsafe_allow_html=True)
+                       color="#FBBF24"), unsafe_allow_html=True)
     c7.markdown(render("🔁 CVR", f"{curr['cvr']:.2f}%", "cvr", "rate",
-                       color="#A16207"), unsafe_allow_html=True)
+                       color="#FBBF24"), unsafe_allow_html=True)
     c8.markdown(render("💎 CPI", f"${curr['cpi']:.2f}" if curr['cpi'] > 0 else "—",
-                       "cpi", "rate", inverse=True, color="#A16207"),
+                       "cpi", "rate", inverse=True, color="#FBBF24"),
                 unsafe_allow_html=True)
 
 
@@ -192,37 +192,39 @@ def show_daily_trend(df: pd.DataFrame) -> None:
     fig = go.Figure()
     fig.add_trace(go.Bar(
         x=daily["date"], y=daily["spend"], name="花費",
-        marker_color="#1D4ED8", opacity=0.55, yaxis="y1",
+        marker_color="#60A5FA", opacity=0.6, yaxis="y1",
         hovertemplate="💰 $%{y:,.0f}<extra></extra>",
     ))
     fig.add_trace(go.Scatter(
         x=daily["date"], y=daily["installs"], name="安裝",
-        mode="lines+markers", line=dict(color="#000000", width=2.5),
+        mode="lines+markers", line=dict(color="#F1F5F9", width=2.5),
         marker=dict(size=6), yaxis="y2",
         hovertemplate="📲 %{y:,.0f}<extra></extra>",
     ))
     fig.add_trace(go.Scatter(
         x=daily["date"], y=daily["cpi"], name="CPI",
-        mode="lines+markers", line=dict(color="#FF6B6B", width=2.5, dash="dot"),
+        mode="lines+markers", line=dict(color="#F87171", width=2.5, dash="dot"),
         marker=dict(size=6), yaxis="y3",
         hovertemplate="💎 $%{y:.2f}<extra></extra>",
     ))
     fig.update_layout(
-        plot_bgcolor="white", height=380, hovermode="x unified",
+        template="plotly_dark",
+        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+        height=380, hovermode="x unified",
         margin=dict(t=40, b=20, l=10, r=80),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        xaxis=dict(showgrid=True, gridcolor="#f0f0f0", domain=[0, 0.92],
+        xaxis=dict(showgrid=True, gridcolor="#334155", domain=[0, 0.92],
                    tickformat="%m/%d"),
-        yaxis=dict(title=dict(text="花費 ($)", font=dict(color="#1D4ED8")),
-                   showgrid=True, gridcolor="#f0f0f0",
-                   tickfont=dict(color="#1D4ED8")),
-        yaxis2=dict(title=dict(text="安裝", font=dict(color="#000")),
+        yaxis=dict(title=dict(text="花費 ($)", font=dict(color="#60A5FA")),
+                   showgrid=True, gridcolor="#334155",
+                   tickfont=dict(color="#60A5FA")),
+        yaxis2=dict(title=dict(text="安裝", font=dict(color="#F1F5F9")),
                     overlaying="y", side="right", showgrid=False,
-                    position=0.92, tickfont=dict(color="#000")),
-        yaxis3=dict(title=dict(text="CPI ($)", font=dict(color="#FF6B6B")),
+                    position=0.92, tickfont=dict(color="#F1F5F9")),
+        yaxis3=dict(title=dict(text="CPI ($)", font=dict(color="#F87171")),
                     overlaying="y", side="right", showgrid=False,
                     anchor="free", position=1.0,
-                    tickfont=dict(color="#FF6B6B")),
+                    tickfont=dict(color="#F87171")),
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -239,14 +241,20 @@ def show_media_mix(df: pd.DataFrame) -> None:
     with c1:
         fig = px.pie(media_stats, values="spend", names="media",
                      title="花費分布", color="media",
-                     color_discrete_map=MEDIA_COLORS)
-        fig.update_layout(height=320, margin=dict(t=40, b=10))
+                     color_discrete_map=MEDIA_COLORS, hole=0.4)
+        fig.update_layout(template="plotly_dark", height=320,
+                          paper_bgcolor="rgba(0,0,0,0)",
+                          plot_bgcolor="rgba(0,0,0,0)",
+                          margin=dict(t=40, b=10))
         st.plotly_chart(fig, use_container_width=True)
     with c2:
         fig2 = px.pie(media_stats, values="installs", names="media",
                       title="安裝分布", color="media",
-                      color_discrete_map=MEDIA_COLORS)
-        fig2.update_layout(height=320, margin=dict(t=40, b=10))
+                      color_discrete_map=MEDIA_COLORS, hole=0.4)
+        fig2.update_layout(template="plotly_dark", height=320,
+                           paper_bgcolor="rgba(0,0,0,0)",
+                           plot_bgcolor="rgba(0,0,0,0)",
+                           margin=dict(t=40, b=10))
         st.plotly_chart(fig2, use_container_width=True)
 
 
@@ -296,10 +304,14 @@ def show_alerts(df: pd.DataFrame, df_prev: pd.DataFrame = None) -> None:
 
     if alerts:
         for icon, cat, msg in alerts:
-            color = "#fff3cd" if "⚠️" in icon or "📉" in icon else "#d1f2eb"
+            is_warning = "⚠️" in icon or "📉" in icon
+            bg = "#3F2A0E" if is_warning else "#0F3A1F"
+            border = "#D97706" if is_warning else "#16A34A"
+            txt = "#FCD34D" if is_warning else "#86EFAC"
             st.markdown(
-                f"<div style='background:{color};padding:10px 15px;border-radius:8px;"
-                f"margin-bottom:6px'>{icon} <b>[{cat}]</b> {msg}</div>",
+                f"<div style='background:{bg};padding:10px 15px;border-radius:8px;"
+                f"border-left:3px solid {border};margin-bottom:6px;color:#F1F5F9'>"
+                f"{icon} <b style='color:{txt}'>[{cat}]</b> {msg}</div>",
                 unsafe_allow_html=True,
             )
     else:
@@ -629,18 +641,18 @@ with st.sidebar:
     max_date = df_raw["date"].max()
     days_behind = (datetime.now().date() - max_date.date()).days
     if days_behind <= 1:
-        icon, txt, bg = "🟢", "正常", "#E8F8F0"
+        icon, txt, bg, border = "🟢", "正常", "#0F3A1F", "#16A34A"
     elif days_behind <= 3:
-        icon, txt, bg = "🟡", "稍舊", "#FFFBEB"
+        icon, txt, bg, border = "🟡", "稍舊", "#3F2A0E", "#D97706"
     else:
-        icon, txt, bg = "🔴", "過期", "#FDEDED"
+        icon, txt, bg, border = "🔴", "過期", "#3F1212", "#DC2626"
     st.markdown(
         f"""<div style="background:{bg};padding:10px 12px;border-radius:8px;
-        border:1px solid rgba(0,0,0,0.06);margin-bottom:14px">
-        <div style="font-size:11.5px;color:#6B7280;margin-bottom:2px">資料狀態</div>
-        <div style="font-size:14px;font-weight:600;color:#1F2937">
+        border-left:3px solid {border};margin-bottom:14px">
+        <div style="font-size:11.5px;color:#94A3B8;margin-bottom:2px">資料狀態</div>
+        <div style="font-size:14px;font-weight:600;color:#F8FAFC">
         📅 最新:{max_date.strftime('%Y-%m-%d')}</div>
-        <div style="font-size:12px;color:#4B5563;margin-top:2px">
+        <div style="font-size:12px;color:#CBD5E1;margin-top:2px">
         {icon} 距今 {days_behind} 天({txt})</div>
         </div>""",
         unsafe_allow_html=True,
@@ -658,25 +670,17 @@ with st.sidebar:
         max_value=max_date.date(),
     )
 
-    # ── 國家篩選(收進 expander)──
+    # ── 國家篩選 ──
     all_country = sorted(df_raw["country"].dropna().unique().tolist())
-    with st.expander(f"🌍 國家(全部 {len(all_country)} 國)", expanded=False):
-        country_filter = st.multiselect(
-            "選擇國家(空白 = 全部)",
-            all_country,
-            default=[],
-            label_visibility="collapsed",
-        )
+    country_choice = st.radio(
+        "🌍 國家", ["全部"] + all_country, horizontal=True, index=0,
+    )
 
-    # ── 媒體篩選(收進 expander,預設全選)──
+    # ── 媒體篩選 ──
     all_media = sorted(df_raw["media"].dropna().unique().tolist())
-    with st.expander(f"📱 媒體(全部 {len(all_media)} 家)", expanded=False):
-        media_filter = st.multiselect(
-            "選擇媒體(空白 = 全部)",
-            all_media,
-            default=[],
-            label_visibility="collapsed",
-        )
+    media_choice = st.radio(
+        "📱 媒體", ["全部"] + all_media, horizontal=True, index=0,
+    )
 
     # ── OS 篩選(把雜訊值歸成「其他」)──
     def _norm_os(s):
@@ -689,10 +693,7 @@ with st.sidebar:
 
     df_raw["_os_group"] = df_raw["os"].apply(_norm_os)
     os_choice = st.radio(
-        "OS",
-        ["全部", "iOS", "Android", "其他"],
-        horizontal=True,
-        index=0,
+        "📱 OS", ["全部", "iOS", "Android", "其他"], horizontal=True, index=0,
     )
 
     st.markdown("---")
@@ -727,24 +728,21 @@ if len(date_range) == 2:
 if os_choice != "全部":
     df = df[df["_os_group"] == os_choice]
     df_prev = df_prev[df_prev["_os_group"] == os_choice] if not df_prev.empty else df_prev
-if country_filter:
-    df = df[df["country"].isin(country_filter)]
-    df_prev = df_prev[df_prev["country"].isin(country_filter)] if not df_prev.empty else df_prev
-if media_filter:
-    df = df[df["media"].isin(media_filter)]
-    df_prev = df_prev[df_prev["media"].isin(media_filter)] if not df_prev.empty else df_prev
+if country_choice != "全部":
+    df = df[df["country"] == country_choice]
+    df_prev = df_prev[df_prev["country"] == country_choice] if not df_prev.empty else df_prev
+if media_choice != "全部":
+    df = df[df["media"] == media_choice]
+    df_prev = df_prev[df_prev["media"] == media_choice] if not df_prev.empty else df_prev
 
 st.title("🌊 Ocean Fishooter 廣告儀表板")
-_country_disp = f"{len(country_filter)} 國" if country_filter else f"全部 {len(all_country)} 國"
-_media_disp = f"{len(media_filter)} 媒體" if media_filter else f"全部 {len(all_media)} 媒體"
 st.caption(
-    f"UA 投放總覽 | {_media_disp} × {_country_disp} × OS:{os_choice}"
+    f"UA 投放 | 媒體:{media_choice} × 國家:{country_choice} × OS:{os_choice}"
 )
 st.markdown("---")
 
-tab1, tab2, tab3 = st.tabs([
+tab1, tab2 = st.tabs([
     "🎯 投放總覽",
-    "🎬 Campaign",
     "🔍 媒體深度",
 ])
 
@@ -761,19 +759,25 @@ with tab1:
     show_alerts(df, df_prev)
 
 with tab2:
-    campaign_media_options = ["全部"] + sorted(df["media"].unique().tolist())
-    campaign_media = st.selectbox("篩選媒體", campaign_media_options, key="campaign_media")
-    show_campaign_table(df, campaign_media)
+    deep_media = st.radio(
+        "選擇媒體",
+        ["Meta", "ASA", "Google", "TikTok", "Applovin", "Moloco"],
+        horizontal=True, key="deep_tab",
+    )
 
-with tab3:
-    sub_tab = st.radio("選擇媒體深度", ["Meta", "ASA", "Google"],
-                        horizontal=True, key="deep_tab")
+    # 1. Campaign 排行(全媒體共通,依當前篩選)
+    st.subheader(f"🎬 {deep_media} Campaign 排行")
+    show_campaign_table(df, deep_media)
+
+    # 2. 各媒體獨家深度
     if len(date_range) == 2:
-        if sub_tab == "Meta":
+        st.markdown("---")
+        if deep_media == "Meta":
             deep_dive_meta(date_range[0], date_range[1])
-        elif sub_tab == "ASA":
+        elif deep_media == "ASA":
             deep_dive_asa(date_range[0], date_range[1])
-        elif sub_tab == "Google":
+        elif deep_media == "Google":
             deep_dive_google(date_range[0], date_range[1])
+        # TikTok / Applovin / Moloco 沒有獨家欄位,只看 campaign
     else:
         st.warning("請選擇完整日期範圍")
