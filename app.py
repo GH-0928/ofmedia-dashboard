@@ -1,0 +1,779 @@
+# -*- coding: utf-8 -*-
+"""OFmedia 廣告儀表板(雲端版)
+
+資料源:OceanFishooter 廣告儀表板 Google Sheet 的 6 個 _raw 分頁
+頁籤:投放總覽 / 媒體成效 / 地區 OS / Campaign 表現 / 媒體深度
+"""
+from datetime import datetime
+
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import streamlit as st
+
+from auth import require_password
+from data import (load_unified, load_meta_raw, load_asa_raw,
+                  load_google_raw, RAW_TABS)
+
+st.set_page_config(
+    page_title="OFmedia 廣告儀表板",
+    page_icon="🎣",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+require_password()
+
+# 媒體配色(維持品牌色感)
+MEDIA_COLORS = {
+    "Meta": "#1877F2",
+    "ASA": "#999999",
+    "Google": "#4285F4",
+    "TikTok": "#000000",
+    "Applovin": "#FF5C5C",
+    "Moloco": "#7C3AED",
+}
+
+# ──────────────────────────────────────────────────────────────────────
+#  通用 KPI 卡片元件
+# ──────────────────────────────────────────────────────────────────────
+def _kpi_pack(df: pd.DataFrame) -> dict:
+    spend = df["spend"].sum()
+    imp = df["impressions"].sum()
+    clicks = df["clicks"].sum()
+    installs = df["installs"].sum()
+    return {
+        "spend": spend, "imp": imp, "clicks": clicks, "installs": installs,
+        "ctr": clicks / imp * 100 if imp > 0 else 0,
+        "cpc": spend / clicks if clicks > 0 else 0,
+        "cpm": spend / imp * 1000 if imp > 0 else 0,
+        "cpi": spend / installs if installs > 0 else 0,
+        "cvr": installs / clicks * 100 if clicks > 0 else 0,
+    }
+
+
+def _sparkline_svg(values: list, color: str = "#1D4ED8") -> str:
+    if not values or len(values) < 2:
+        return ""
+    width, height, pad = 90, 40, 4
+    min_v, max_v = min(values), max(values)
+    if max_v == min_v:
+        max_v = min_v + 1
+    pts = []
+    for i, v in enumerate(values):
+        x = i * width / (len(values) - 1)
+        y = height - pad - (v - min_v) / (max_v - min_v) * (height - 2 * pad)
+        pts.append(f"{x:.1f},{y:.1f}")
+    last_x = (len(values) - 1) * width / (len(values) - 1)
+    last_y = float(pts[-1].split(",")[1])
+    return (
+        f'<svg width="{width}" height="{height}" '
+        f'style="display:block;opacity:0.8;flex-shrink:0">'
+        f'<polyline points="{" ".join(pts)}" stroke="{color}" stroke-width="1.8" '
+        f'fill="none" stroke-linecap="round" stroke-linejoin="round"/>'
+        f'<circle cx="{last_x:.1f}" cy="{last_y:.1f}" r="2.5" fill="{color}"/>'
+        f'</svg>'
+    )
+
+
+def _compute_sparks(df: pd.DataFrame) -> dict:
+    if df.empty:
+        return {}
+    max_d = df["date"].max()
+    min_d = max_d - pd.Timedelta(days=6)
+    df7 = df[df["date"] >= min_d]
+    if df7.empty:
+        return {}
+    d = df7.groupby("date").agg(
+        spend=("spend", "sum"),
+        imp=("impressions", "sum"),
+        clicks=("clicks", "sum"),
+        installs=("installs", "sum"),
+    ).sort_index()
+    d["ctr"] = (d["clicks"] / d["imp"] * 100).fillna(0)
+    d["cpc"] = (d["spend"] / d["clicks"]).replace([float("inf"), float("-inf")], 0).fillna(0)
+    d["cpm"] = (d["spend"] / d["imp"] * 1000).replace([float("inf"), float("-inf")], 0).fillna(0)
+    d["cpi"] = (d["spend"] / d["installs"]).replace([float("inf"), float("-inf")], 0).fillna(0)
+    d["cvr"] = (d["installs"] / d["clicks"] * 100).fillna(0)
+    return {k: d[k].tolist() for k in
+            ["spend", "imp", "clicks", "installs", "ctr", "cpc", "cpm", "cpi", "cvr"]
+            if k in d.columns}
+
+
+_KPI_CSS = """
+<style>
+.kpi-card{
+    background:#fff;border:1px solid #E5E7EB;border-radius:10px;
+    padding:10px 14px;margin-bottom:10px;
+    box-shadow:0 1px 2px rgba(0,0,0,0.04);
+    display:flex;align-items:center;gap:10px;min-height:84px;
+}
+.kpi-vol{background:#F0F7FF;border-color:#CFE2F8}
+.kpi-rate{background:#FFFBEB;border-color:#F4E5B8}
+.kpi-body{flex:1;min-width:0}
+.kpi-label{font-size:13.5px;font-weight:600;color:#1F2937;margin-bottom:2px}
+.kpi-value{font-size:22px;font-weight:700;color:#0F172A;line-height:1.1}
+.kpi-delta{font-size:11.5px;margin-top:3px;font-weight:500}
+.kpi-up-good{color:#15803D}
+.kpi-down-good{color:#B91C1C}
+.kpi-up-bad{color:#B91C1C}
+.kpi-down-bad{color:#15803D}
+.kpi-section{font-size:15px;font-weight:700;margin:14px 0 8px 0;color:#1F2937}
+</style>
+"""
+
+
+def show_kpis(df: pd.DataFrame, df_prev: pd.DataFrame = None) -> None:
+    curr = _kpi_pack(df)
+    prev = _kpi_pack(df_prev) if df_prev is not None and not df_prev.empty else None
+    sparks = _compute_sparks(df)
+
+    st.markdown(_KPI_CSS, unsafe_allow_html=True)
+
+    def render(label, value, key, category, inverse=False, color="#1D4ED8"):
+        delta_html = ""
+        if prev and prev.get(key):
+            pct = (curr[key] - prev[key]) / prev[key] * 100
+            arrow = "↑" if pct >= 0 else "↓"
+            sign = "+" if pct >= 0 else ""
+            is_up = pct >= 0
+            cls = ("kpi-up-bad" if is_up else "kpi-down-bad") if inverse else \
+                  ("kpi-up-good" if is_up else "kpi-down-good")
+            delta_html = f'<div class="kpi-delta {cls}">{arrow} {sign}{pct:.1f}% vs 上期</div>'
+        spark_html = _sparkline_svg(sparks.get(key, []), color=color)
+        return (
+            f'<div class="kpi-card kpi-{category}">'
+            f'<div class="kpi-body">'
+            f'<div class="kpi-label">{label}</div>'
+            f'<div class="kpi-value">{value}</div>'
+            f'{delta_html}'
+            f'</div>'
+            f'{spark_html}'
+            f'</div>'
+        )
+
+    # 規模指標(藍)
+    st.markdown('<div class="kpi-section">💵 規模指標</div>', unsafe_allow_html=True)
+    c1, c2, c3, c4 = st.columns(4)
+    c1.markdown(render("💰 花費", f"${curr['spend']:,.0f}", "spend", "vol"),
+                unsafe_allow_html=True)
+    c2.markdown(render("👁️ 曝光", f"{curr['imp']:,.0f}", "imp", "vol"),
+                unsafe_allow_html=True)
+    c3.markdown(render("🖱️ 點擊", f"{curr['clicks']:,.0f}", "clicks", "vol"),
+                unsafe_allow_html=True)
+    c4.markdown(render("📲 安裝", f"{curr['installs']:,.0f}", "installs", "vol"),
+                unsafe_allow_html=True)
+
+    # 效率指標(黃)
+    st.markdown('<div class="kpi-section">🎯 效率指標</div>', unsafe_allow_html=True)
+    c5, c6, c7, c8, c9 = st.columns(5)
+    c5.markdown(render("💎 CPI", f"${curr['cpi']:.2f}" if curr['cpi'] > 0 else "—",
+                       "cpi", "rate", inverse=True, color="#A16207"),
+                unsafe_allow_html=True)
+    c6.markdown(render("🖱️ CPC", f"${curr['cpc']:.2f}" if curr['cpc'] > 0 else "—",
+                       "cpc", "rate", inverse=True, color="#A16207"),
+                unsafe_allow_html=True)
+    c7.markdown(render("📡 CPM", f"${curr['cpm']:.2f}", "cpm", "rate",
+                       inverse=True, color="#A16207"), unsafe_allow_html=True)
+    c8.markdown(render("📣 CTR", f"{curr['ctr']:.2f}%", "ctr", "rate",
+                       color="#A16207"), unsafe_allow_html=True)
+    c9.markdown(render("🔁 CVR", f"{curr['cvr']:.2f}%", "cvr", "rate",
+                       color="#A16207"), unsafe_allow_html=True)
+
+
+# ──────────────────────────────────────────────────────────────────────
+#  圖表
+# ──────────────────────────────────────────────────────────────────────
+def show_daily_trend(df: pd.DataFrame) -> None:
+    daily = df.groupby("date").agg(
+        spend=("spend", "sum"),
+        installs=("installs", "sum"),
+    ).reset_index()
+    daily["cpi"] = (daily["spend"] / daily["installs"]).replace(
+        [float("inf"), float("-inf")], 0).fillna(0)
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=daily["date"], y=daily["spend"], name="花費",
+        marker_color="#1D4ED8", opacity=0.55, yaxis="y1",
+        hovertemplate="💰 $%{y:,.0f}<extra></extra>",
+    ))
+    fig.add_trace(go.Scatter(
+        x=daily["date"], y=daily["installs"], name="安裝",
+        mode="lines+markers", line=dict(color="#000000", width=2.5),
+        marker=dict(size=6), yaxis="y2",
+        hovertemplate="📲 %{y:,.0f}<extra></extra>",
+    ))
+    fig.add_trace(go.Scatter(
+        x=daily["date"], y=daily["cpi"], name="CPI",
+        mode="lines+markers", line=dict(color="#FF6B6B", width=2.5, dash="dot"),
+        marker=dict(size=6), yaxis="y3",
+        hovertemplate="💎 $%{y:.2f}<extra></extra>",
+    ))
+    fig.update_layout(
+        plot_bgcolor="white", height=380, hovermode="x unified",
+        margin=dict(t=40, b=20, l=10, r=80),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        xaxis=dict(showgrid=True, gridcolor="#f0f0f0", domain=[0, 0.92],
+                   tickformat="%m/%d"),
+        yaxis=dict(title=dict(text="花費 ($)", font=dict(color="#1D4ED8")),
+                   showgrid=True, gridcolor="#f0f0f0",
+                   tickfont=dict(color="#1D4ED8")),
+        yaxis2=dict(title=dict(text="安裝", font=dict(color="#000")),
+                    overlaying="y", side="right", showgrid=False,
+                    position=0.92, tickfont=dict(color="#000")),
+        yaxis3=dict(title=dict(text="CPI ($)", font=dict(color="#FF6B6B")),
+                    overlaying="y", side="right", showgrid=False,
+                    anchor="free", position=1.0,
+                    tickfont=dict(color="#FF6B6B")),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def show_media_mix(df: pd.DataFrame) -> None:
+    media_stats = df.groupby("media").agg(
+        spend=("spend", "sum"),
+        installs=("installs", "sum"),
+    ).reset_index()
+    media_stats["cpi"] = (media_stats["spend"] / media_stats["installs"]).replace(
+        [float("inf"), float("-inf")], 0).fillna(0)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        fig = px.pie(media_stats, values="spend", names="media",
+                     title="花費分布", color="media",
+                     color_discrete_map=MEDIA_COLORS)
+        fig.update_layout(height=320, margin=dict(t=40, b=10))
+        st.plotly_chart(fig, use_container_width=True)
+    with c2:
+        fig2 = px.pie(media_stats, values="installs", names="media",
+                      title="安裝分布", color="media",
+                      color_discrete_map=MEDIA_COLORS)
+        fig2.update_layout(height=320, margin=dict(t=40, b=10))
+        st.plotly_chart(fig2, use_container_width=True)
+
+
+def show_alerts(df: pd.DataFrame, df_prev: pd.DataFrame = None) -> None:
+    alerts = []
+    if df_prev is not None and not df_prev.empty:
+        # 媒體 CPI 暴增
+        c = df.groupby("media").agg(spend=("spend", "sum"),
+                                     installs=("installs", "sum")).reset_index()
+        c["cpi"] = (c["spend"] / c["installs"]).replace(
+            [float("inf"), float("-inf")], 0).fillna(0)
+        p = df_prev.groupby("media").agg(spend=("spend", "sum"),
+                                         installs=("installs", "sum")).reset_index()
+        p["cpi"] = (p["spend"] / p["installs"]).replace(
+            [float("inf"), float("-inf")], 0).fillna(0)
+        merged = c.merge(p[["media", "cpi"]], on="media", suffixes=("", "_prev"))
+        for _, r in merged.iterrows():
+            if r["cpi_prev"] > 0 and r["cpi"] > 0:
+                chg = (r["cpi"] - r["cpi_prev"]) / r["cpi_prev"] * 100
+                if chg > 30:
+                    alerts.append(("⚠️", "CPI 暴增",
+                                   f"**{r['media']}** CPI 從 ${r['cpi_prev']:.2f} → "
+                                   f"${r['cpi']:.2f}({chg:+.0f}%),建議檢查素材或受眾"))
+                elif chg < -25 and r["installs"] > 50:
+                    alerts.append(("🌟", "CPI 改善",
+                                   f"**{r['media']}** CPI 從 ${r['cpi_prev']:.2f} → "
+                                   f"${r['cpi']:.2f}({chg:+.0f}%),可考慮加碼"))
+        # 安裝量驟降
+        cv = df.groupby("media")["installs"].sum()
+        pv = df_prev.groupby("media")["installs"].sum()
+        for media in cv.index:
+            if media in pv.index and pv[media] > 50:
+                chg = (cv[media] - pv[media]) / pv[media] * 100
+                if chg < -40:
+                    alerts.append(("📉", "安裝量驟降",
+                                   f"**{media}** 安裝從 {pv[media]:.0f} → "
+                                   f"{cv[media]:.0f}({chg:+.0f}%)"))
+
+    # 預算過度集中
+    media_spend = df.groupby("media")["spend"].sum().reset_index()
+    total = media_spend["spend"].sum()
+    for _, r in media_spend.iterrows():
+        pct = r["spend"] / total * 100 if total > 0 else 0
+        if pct > 60:
+            alerts.append(("⚠️", "預算集中",
+                           f"**{r['media']}** 佔總花費 {pct:.1f}%,單一媒體依賴風險高"))
+
+    if alerts:
+        for icon, cat, msg in alerts:
+            color = "#fff3cd" if "⚠️" in icon or "📉" in icon else "#d1f2eb"
+            st.markdown(
+                f"<div style='background:{color};padding:10px 15px;border-radius:8px;"
+                f"margin-bottom:6px'>{icon} <b>[{cat}]</b> {msg}</div>",
+                unsafe_allow_html=True,
+            )
+    else:
+        st.success("目前無重大警示。")
+
+
+def show_media_compare(df: pd.DataFrame) -> None:
+    """6 媒體並排對比表 + CPI 排行條形圖。"""
+    stats = df.groupby("media").agg(
+        spend=("spend", "sum"),
+        impressions=("impressions", "sum"),
+        clicks=("clicks", "sum"),
+        installs=("installs", "sum"),
+    ).reset_index()
+    stats["CTR(%)"] = (stats["clicks"] / stats["impressions"] * 100).fillna(0).round(2)
+    stats["CPC($)"] = (stats["spend"] / stats["clicks"]).replace(
+        [float("inf"), float("-inf")], 0).fillna(0).round(2)
+    stats["CPI($)"] = (stats["spend"] / stats["installs"]).replace(
+        [float("inf"), float("-inf")], 0).fillna(0).round(2)
+    total_spend = stats["spend"].sum()
+    stats["花費%"] = (stats["spend"] / total_spend * 100).round(1) if total_spend > 0 else 0
+
+    disp = stats[["media", "spend", "花費%", "installs", "CPI($)", "CTR(%)", "CPC($)"]].copy()
+    disp.columns = ["媒體", "花費($)", "花費%", "安裝", "CPI($)", "CTR(%)", "CPC($)"]
+    disp = disp.sort_values("花費($)", ascending=False)
+    disp["花費($)"] = disp["花費($)"].apply(lambda x: f"${x:,.0f}")
+    disp["安裝"] = disp["安裝"].apply(lambda x: f"{int(x):,}")
+    disp["花費%"] = disp["花費%"].apply(lambda x: f"{x:.1f}%")
+    st.dataframe(disp, hide_index=True, use_container_width=True)
+
+    # CPI 排行
+    rank = stats[stats["installs"] >= 10].sort_values("CPI($)", ascending=False)
+    if not rank.empty:
+        fig = px.bar(rank, x="CPI($)", y="media", orientation="h",
+                     color="media", color_discrete_map=MEDIA_COLORS,
+                     title="CPI 排行(數字越低越好,>10 安裝才列入)")
+        fig.update_layout(height=300, showlegend=False, plot_bgcolor="white",
+                          margin=dict(t=40, b=10),
+                          yaxis={"categoryorder": "total descending"})
+        st.plotly_chart(fig, use_container_width=True)
+
+
+def show_geo_os(df: pd.DataFrame) -> None:
+    """地區 + OS 分析。"""
+    # iOS vs Android 兩個 KPI 並排
+    st.subheader("📱 iOS vs Android")
+    df_ios = df[df["os"].str.upper().isin(["IOS"])]
+    df_and = df[df["os"].str.upper().isin(["AND", "ANDROID"])]
+    c1, c2 = st.columns(2)
+    for col, sub, label, emoji in [(c1, df_ios, "iOS", "🍎"),
+                                    (c2, df_and, "Android", "🤖")]:
+        with col:
+            k = _kpi_pack(sub)
+            st.markdown(
+                f"<div style='padding:14px;background:#F8F9FA;border-radius:10px;"
+                f"border:1px solid #E5E7EB'>"
+                f"<div style='font-size:14px;font-weight:700;color:#1F2937;"
+                f"margin-bottom:8px'>{emoji} {label}</div>"
+                f"<div style='font-size:13px;line-height:1.8'>"
+                f"💰 花費:<b>${k['spend']:,.0f}</b><br>"
+                f"📲 安裝:<b>{k['installs']:,.0f}</b><br>"
+                f"💎 CPI:<b>${k['cpi']:.2f}</b><br>"
+                f"📣 CTR:<b>{k['ctr']:.2f}%</b><br>"
+                f"🔁 CVR:<b>{k['cvr']:.2f}%</b>"
+                f"</div></div>",
+                unsafe_allow_html=True,
+            )
+
+    st.markdown("---")
+    st.subheader("🌍 國家表現(前 15 名,依花費排)")
+    geo = df.groupby("country").agg(
+        spend=("spend", "sum"),
+        installs=("installs", "sum"),
+        clicks=("clicks", "sum"),
+    ).reset_index()
+    geo["CPI($)"] = (geo["spend"] / geo["installs"]).replace(
+        [float("inf"), float("-inf")], 0).fillna(0).round(2)
+    geo["CPC($)"] = (geo["spend"] / geo["clicks"]).replace(
+        [float("inf"), float("-inf")], 0).fillna(0).round(2)
+    top15 = geo.sort_values("spend", ascending=False).head(15).copy()
+    top15["花費($)"] = top15["spend"].apply(lambda x: f"${x:,.0f}")
+    top15["安裝"] = top15["installs"].apply(lambda x: f"{int(x):,}")
+    disp = top15[["country", "花費($)", "安裝", "CPI($)", "CPC($)"]]
+    disp.columns = ["國家", "花費($)", "安裝", "CPI($)", "CPC($)"]
+    st.dataframe(disp, hide_index=True, use_container_width=True)
+
+    st.markdown("---")
+    st.subheader("🌡️ 國家 × 媒體 CPI 熱力矩陣")
+    heatmap_df = df.copy()
+    heatmap_df = heatmap_df[heatmap_df["country"].isin(top15["country"].tolist())]
+    pivot = heatmap_df.pivot_table(index="country", columns="media",
+                                    values=["spend", "installs"], aggfunc="sum",
+                                    fill_value=0)
+    if not pivot.empty:
+        cpi_mat = pivot["spend"] / pivot["installs"].replace(0, float("nan"))
+        cpi_mat = cpi_mat.round(2)
+        fig = px.imshow(cpi_mat, color_continuous_scale="RdYlGn_r",
+                        labels=dict(color="CPI ($)"), aspect="auto",
+                        text_auto=".2f")
+        fig.update_layout(height=400, margin=dict(t=20, b=10))
+        st.plotly_chart(fig, use_container_width=True)
+        st.caption("綠 = CPI 低(便宜的安裝),紅 = CPI 高;空格代表該組合無安裝")
+
+
+def show_campaign_table(df: pd.DataFrame, media_filter: str = "全部") -> None:
+    """Campaign 排行 + 異常警示。"""
+    if media_filter != "全部":
+        df = df[df["media"] == media_filter]
+    if df.empty:
+        st.info("此條件下無資料")
+        return
+    cmp = df.groupby(["media", "campaign"]).agg(
+        spend=("spend", "sum"),
+        installs=("installs", "sum"),
+        clicks=("clicks", "sum"),
+        impressions=("impressions", "sum"),
+    ).reset_index()
+    cmp["CPI($)"] = (cmp["spend"] / cmp["installs"]).replace(
+        [float("inf"), float("-inf")], 0).fillna(0).round(2)
+    cmp["CTR(%)"] = (cmp["clicks"] / cmp["impressions"] * 100).fillna(0).round(2)
+    cmp = cmp.sort_values("spend", ascending=False)
+
+    # 異常標註
+    media_avg_cpi = cmp.groupby("media").apply(
+        lambda g: g[g["installs"] >= 10]["CPI($)"].mean() if len(g) else 0
+    ).to_dict()
+
+    def label_row(r):
+        if r["installs"] < 5 and r["spend"] > 100:
+            return "🚨 高花費低安裝"
+        avg = media_avg_cpi.get(r["media"], 0)
+        if avg > 0 and r["installs"] >= 10:
+            if r["CPI($)"] < avg * 0.7:
+                return "💎 優於均值 30%+"
+            if r["CPI($)"] > avg * 1.5:
+                return "⚠️ 高於均值 50%+"
+        return ""
+
+    cmp["標註"] = cmp.apply(label_row, axis=1)
+
+    disp = cmp[["media", "campaign", "spend", "installs", "CPI($)", "CTR(%)", "標註"]].copy()
+    disp.columns = ["媒體", "Campaign", "花費($)", "安裝", "CPI($)", "CTR(%)", "標註"]
+    disp["花費($)"] = disp["花費($)"].apply(lambda x: f"${x:,.0f}")
+    disp["安裝"] = disp["安裝"].apply(lambda x: f"{int(x):,}")
+    st.dataframe(disp, hide_index=True, use_container_width=True, height=460)
+
+
+# ──────────────────────────────────────────────────────────────────────
+#  深度頁籤
+# ──────────────────────────────────────────────────────────────────────
+def deep_dive_meta(date_start, date_end) -> None:
+    df = load_meta_raw()
+    if df.empty:
+        st.info("Meta_raw 無資料")
+        return
+    df = df[(df["date"].dt.date >= date_start) & (df["date"].dt.date <= date_end)]
+    if df.empty:
+        st.info("此期間 Meta 無資料")
+        return
+
+    st.subheader("🎬 Meta 素材(Ad)排行 ─ 依花費")
+    if "ad" in df.columns:
+        ad_stats = df.groupby("ad").agg(
+            spend=("spend", "sum"),
+            installs=("installs", "sum"),
+            impressions=("impressions", "sum"),
+            clicks=("clicks", "sum"),
+        )
+        if "成果 ROAS" in df.columns:
+            roas_w = df.groupby("ad").apply(
+                lambda g: (g["成果 ROAS"] * g["spend"]).sum() / g["spend"].sum()
+                if g["spend"].sum() > 0 else None
+            )
+            ad_stats["ROAS"] = roas_w
+        if "購買次數" in df.columns:
+            ad_stats["購買數"] = df.groupby("ad")["購買次數"].sum()
+        ad_stats["CPI($)"] = (ad_stats["spend"] / ad_stats["installs"]).replace(
+            [float("inf"), float("-inf")], 0).fillna(0).round(2)
+        ad_stats["CTR(%)"] = (ad_stats["clicks"] / ad_stats["impressions"] * 100).fillna(0).round(2)
+        ad_stats = ad_stats.reset_index().sort_values("spend", ascending=False).head(30)
+        ad_stats["花費($)"] = ad_stats["spend"].apply(lambda x: f"${x:,.0f}")
+        ad_stats["安裝"] = ad_stats["installs"].apply(lambda x: f"{int(x):,}")
+        cols = ["ad", "花費($)", "安裝", "CPI($)", "CTR(%)"]
+        if "ROAS" in ad_stats.columns:
+            ad_stats["ROAS"] = ad_stats["ROAS"].apply(
+                lambda x: f"{x:.2f}" if pd.notna(x) else "—")
+            cols.insert(4, "ROAS")
+        if "購買數" in ad_stats.columns:
+            ad_stats["購買數"] = ad_stats["購買數"].apply(lambda x: f"{int(x):,}")
+            cols.append("購買數")
+        st.dataframe(ad_stats[cols], hide_index=True, use_container_width=True, height=460)
+
+    st.markdown("---")
+    st.subheader("📦 Ad Group 表現")
+    if "ad_group" in df.columns:
+        ag = df.groupby("ad_group").agg(
+            spend=("spend", "sum"),
+            installs=("installs", "sum"),
+            clicks=("clicks", "sum"),
+            impressions=("impressions", "sum"),
+        ).reset_index()
+        ag["CPI($)"] = (ag["spend"] / ag["installs"]).replace(
+            [float("inf"), float("-inf")], 0).fillna(0).round(2)
+        ag["CTR(%)"] = (ag["clicks"] / ag["impressions"] * 100).fillna(0).round(2)
+        ag = ag.sort_values("spend", ascending=False).head(20)
+        ag["花費($)"] = ag["spend"].apply(lambda x: f"${x:,.0f}")
+        ag["安裝"] = ag["installs"].apply(lambda x: f"{int(x):,}")
+        st.dataframe(ag[["ad_group", "花費($)", "安裝", "CPI($)", "CTR(%)"]],
+                     hide_index=True, use_container_width=True)
+
+
+def deep_dive_asa(date_start, date_end) -> None:
+    df = load_asa_raw()
+    if df.empty:
+        st.info("ASA_raw 無資料")
+        return
+    df = df[(df["date"].dt.date >= date_start) & (df["date"].dt.date <= date_end)]
+    if df.empty:
+        st.info("此期間 ASA 無資料")
+        return
+
+    st.subheader("🔑 關鍵字(Keyword)排行 ─ 依花費")
+    if "keyword" in df.columns:
+        kw = df.groupby("keyword").agg(
+            spend=("spend", "sum"),
+            installs=("installs", "sum"),
+            clicks=("clicks", "sum"),
+            impressions=("impressions", "sum"),
+        ).reset_index()
+        kw["CPI($)"] = (kw["spend"] / kw["installs"]).replace(
+            [float("inf"), float("-inf")], 0).fillna(0).round(2)
+        kw["CTR(%)"] = (kw["clicks"] / kw["impressions"] * 100).fillna(0).round(2)
+        kw["CVR(%)"] = (kw["installs"] / kw["clicks"] * 100).fillna(0).round(2)
+        kw = kw.sort_values("spend", ascending=False).head(30)
+        kw["花費($)"] = kw["spend"].apply(lambda x: f"${x:,.0f}")
+        kw["安裝"] = kw["installs"].apply(lambda x: f"{int(x):,}")
+        st.dataframe(kw[["keyword", "花費($)", "安裝", "CPI($)", "CTR(%)", "CVR(%)"]],
+                     hide_index=True, use_container_width=True, height=460)
+
+    st.markdown("---")
+    st.subheader("🔎 Search Term vs Keyword 表現")
+    if "search_term" in df.columns:
+        st_df = df.groupby("search_term").agg(
+            spend=("spend", "sum"),
+            installs=("installs", "sum"),
+        ).reset_index()
+        st_df = st_df[st_df["spend"] > 0].sort_values("spend", ascending=False).head(20)
+        st_df["CPI($)"] = (st_df["spend"] / st_df["installs"]).replace(
+            [float("inf"), float("-inf")], 0).fillna(0).round(2)
+        st_df["花費($)"] = st_df["spend"].apply(lambda x: f"${x:,.0f}")
+        st_df["安裝"] = st_df["installs"].apply(lambda x: f"{int(x):,}")
+        st.dataframe(st_df[["search_term", "花費($)", "安裝", "CPI($)"]],
+                     hide_index=True, use_container_width=True)
+
+    st.markdown("---")
+    st.subheader("📍 Match Type 表現")
+    if "match_type" in df.columns:
+        mt = df.groupby("match_type").agg(
+            spend=("spend", "sum"),
+            installs=("installs", "sum"),
+            clicks=("clicks", "sum"),
+        ).reset_index()
+        mt["CPI($)"] = (mt["spend"] / mt["installs"]).replace(
+            [float("inf"), float("-inf")], 0).fillna(0).round(2)
+        mt["花費($)"] = mt["spend"].apply(lambda x: f"${x:,.0f}")
+        mt["安裝"] = mt["installs"].apply(lambda x: f"{int(x):,}")
+        st.dataframe(mt[["match_type", "花費($)", "安裝", "CPI($)"]],
+                     hide_index=True, use_container_width=True)
+
+
+def deep_dive_google(date_start, date_end) -> None:
+    df = load_google_raw()
+    if df.empty:
+        st.info("Google_raw 無資料")
+        return
+    df = df[(df["date"].dt.date >= date_start) & (df["date"].dt.date <= date_end)]
+    if df.empty:
+        st.info("此期間 Google 無資料")
+        return
+
+    st.subheader("🌐 Network 表現對比(搜尋 / 多媒體聯播網)")
+    if "network" in df.columns:
+        nw = df.groupby("network").agg(
+            spend=("spend", "sum"),
+            installs=("installs", "sum"),
+            clicks=("clicks", "sum"),
+            impressions=("impressions", "sum"),
+        ).reset_index()
+        nw["CPI($)"] = (nw["spend"] / nw["installs"]).replace(
+            [float("inf"), float("-inf")], 0).fillna(0).round(2)
+        nw["CTR(%)"] = (nw["clicks"] / nw["impressions"] * 100).fillna(0).round(2)
+        nw["花費($)"] = nw["spend"].apply(lambda x: f"${x:,.0f}")
+        nw["安裝"] = nw["installs"].apply(lambda x: f"{int(x):,}")
+        st.dataframe(nw[["network", "花費($)", "安裝", "CPI($)", "CTR(%)"]],
+                     hide_index=True, use_container_width=True)
+
+    st.markdown("---")
+    st.subheader("📦 Ad Group 排行 ─ 依花費")
+    if "ad_group" in df.columns:
+        ag = df.groupby("ad_group").agg(
+            spend=("spend", "sum"),
+            installs=("installs", "sum"),
+            clicks=("clicks", "sum"),
+        ).reset_index()
+        ag["CPI($)"] = (ag["spend"] / ag["installs"]).replace(
+            [float("inf"), float("-inf")], 0).fillna(0).round(2)
+        ag = ag.sort_values("spend", ascending=False).head(20)
+        ag["花費($)"] = ag["spend"].apply(lambda x: f"${x:,.0f}")
+        ag["安裝"] = ag["installs"].apply(lambda x: f"{int(x):,}")
+        st.dataframe(ag[["ad_group", "花費($)", "安裝", "CPI($)"]],
+                     hide_index=True, use_container_width=True, height=460)
+
+
+# ──────────────────────────────────────────────────────────────────────
+#  主程式
+# ──────────────────────────────────────────────────────────────────────
+df_raw = load_unified()
+if df_raw is None or df_raw.empty:
+    st.error("無法載入資料,請檢查 Google Sheet 連線設定。")
+    st.stop()
+
+with st.sidebar:
+    st.markdown("### 🎣 OFmedia")
+
+    # 資料新鮮度
+    min_date = df_raw["date"].min()
+    max_date = df_raw["date"].max()
+    days_behind = (datetime.now().date() - max_date.date()).days
+    if days_behind <= 1:
+        icon, txt, bg = "🟢", "正常", "#E8F8F0"
+    elif days_behind <= 3:
+        icon, txt, bg = "🟡", "稍舊", "#FFFBEB"
+    else:
+        icon, txt, bg = "🔴", "過期", "#FDEDED"
+    st.markdown(
+        f"""<div style="background:{bg};padding:10px 12px;border-radius:8px;
+        border:1px solid rgba(0,0,0,0.06);margin-bottom:14px">
+        <div style="font-size:11.5px;color:#6B7280;margin-bottom:2px">資料狀態</div>
+        <div style="font-size:14px;font-weight:600;color:#1F2937">
+        📅 最新:{max_date.strftime('%Y-%m-%d')}</div>
+        <div style="font-size:12px;color:#4B5563;margin-top:2px">
+        {icon} 距今 {days_behind} 天({txt})</div>
+        </div>""",
+        unsafe_allow_html=True,
+    )
+
+    st.title("篩選條件")
+    default_end = max_date.date()
+    default_start = default_end.replace(day=1)
+    if default_start < min_date.date():
+        default_start = min_date.date()
+    date_range = st.date_input(
+        "日期範圍",
+        value=(default_start, default_end),
+        min_value=min_date.date(),
+        max_value=max_date.date(),
+    )
+
+    # OS 篩選
+    all_os = sorted(df_raw["os"].dropna().unique().tolist())
+    os_filter = st.multiselect("OS", all_os, default=all_os)
+
+    # Country 篩選
+    all_country = sorted(df_raw["country"].dropna().unique().tolist())
+    country_filter = st.multiselect("國家", all_country, default=all_country)
+
+    st.markdown("---")
+    if len(date_range) == 2:
+        _len = (date_range[1] - date_range[0]).days + 1
+        _prev_end = date_range[0] - pd.Timedelta(days=1)
+        _prev_start = _prev_end - pd.Timedelta(days=_len - 1)
+        st.caption(
+            f"**對比期**:{_prev_start.strftime('%Y-%m-%d')} ~ "
+            f"{_prev_end.strftime('%Y-%m-%d')}"
+        )
+        st.caption(f"(同長度 {_len} 天)")
+    st.markdown("---")
+    st.caption(f"資料範圍:{min_date.strftime('%Y-%m-%d')} ~ {max_date.strftime('%Y-%m-%d')}")
+    st.caption(f"頁面開啟時間:{datetime.now().strftime('%Y/%m/%d %H:%M')}")
+    if st.button("🔄 重新載入資料", help="清除快取並從 Google Sheet 重新拉資料"):
+        st.cache_data.clear()
+        st.rerun()
+
+# 套用篩選
+df = df_raw.copy()
+df_prev = pd.DataFrame()
+if len(date_range) == 2:
+    start, end = date_range[0], date_range[1]
+    df = df[(df["date"].dt.date >= start) & (df["date"].dt.date <= end)]
+    period_len = (end - start).days + 1
+    prev_end = start - pd.Timedelta(days=1)
+    prev_start = prev_end - pd.Timedelta(days=period_len - 1)
+    df_prev = df_raw[(df_raw["date"].dt.date >= prev_start)
+                     & (df_raw["date"].dt.date <= prev_end)]
+
+if os_filter:
+    df = df[df["os"].isin(os_filter)]
+    df_prev = df_prev[df_prev["os"].isin(os_filter)] if not df_prev.empty else df_prev
+if country_filter:
+    df = df[df["country"].isin(country_filter)]
+    df_prev = df_prev[df_prev["country"].isin(country_filter)] if not df_prev.empty else df_prev
+
+st.title("🎣 OFmedia 廣告儀表板")
+st.caption(
+    f"Ocean Fishooter UA 投放總覽 | 6 媒體 × {len(country_filter)} 國 × "
+    f"{', '.join(os_filter) or '全 OS'}"
+)
+st.markdown("---")
+
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "🎯 投放總覽",
+    "📊 媒體成效",
+    "🌍 地區 × OS",
+    "🎬 Campaign",
+    "🔍 媒體深度",
+])
+
+with tab1:
+    show_kpis(df, df_prev)
+    st.markdown("---")
+    st.subheader("📈 每日趨勢(花費 / 安裝 / CPI)")
+    show_daily_trend(df)
+    st.markdown("---")
+    st.subheader("🥧 媒體分布")
+    show_media_mix(df)
+    st.markdown("---")
+    st.subheader("⚠️ 異常警示")
+    show_alerts(df, df_prev)
+
+with tab2:
+    st.subheader("📋 6 媒體並排對比")
+    show_media_compare(df)
+    st.markdown("---")
+    st.subheader("📈 各媒體每日花費趨勢")
+    daily_media = df.groupby(["date", "media"]).agg(
+        spend=("spend", "sum"),
+        installs=("installs", "sum"),
+    ).reset_index()
+    daily_media["cpi"] = (daily_media["spend"] / daily_media["installs"]).replace(
+        [float("inf"), float("-inf")], 0).fillna(0)
+    metric_choice = st.radio("看哪個指標", ["spend", "installs", "cpi"],
+                              format_func=lambda x: {"spend": "花費",
+                                                       "installs": "安裝",
+                                                       "cpi": "CPI"}[x],
+                              horizontal=True, key="media_trend_metric")
+    fig = px.line(daily_media, x="date", y=metric_choice, color="media",
+                   color_discrete_map=MEDIA_COLORS,
+                   labels={metric_choice: {"spend": "花費($)",
+                                            "installs": "安裝",
+                                            "cpi": "CPI($)"}[metric_choice],
+                            "date": "日期"})
+    fig.update_layout(height=380, plot_bgcolor="white", margin=dict(t=20, b=10))
+    st.plotly_chart(fig, use_container_width=True)
+
+with tab3:
+    show_geo_os(df)
+
+with tab4:
+    media_options = ["全部"] + sorted(df["media"].unique().tolist())
+    media_filter = st.selectbox("篩選媒體", media_options, key="campaign_media")
+    show_campaign_table(df, media_filter)
+
+with tab5:
+    sub_tab = st.radio("選擇媒體深度", ["Meta", "ASA", "Google"],
+                        horizontal=True, key="deep_tab")
+    if len(date_range) == 2:
+        if sub_tab == "Meta":
+            deep_dive_meta(date_range[0], date_range[1])
+        elif sub_tab == "ASA":
+            deep_dive_asa(date_range[0], date_range[1])
+        elif sub_tab == "Google":
+            deep_dive_google(date_range[0], date_range[1])
+    else:
+        st.warning("請選擇完整日期範圍")

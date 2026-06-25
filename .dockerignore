@@ -1,0 +1,12 @@
+.git
+.gitignore
+.venv
+venv
+__pycache__
+*.pyc
+.streamlit/secrets.toml
+README.md
+.vscode
+.idea
+.DS_Store
+Thumbs.db
