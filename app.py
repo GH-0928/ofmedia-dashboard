@@ -563,6 +563,63 @@ def _meta_ad_detail_chart(sub: pd.DataFrame, ad_name: str,
     st.plotly_chart(fig, use_container_width=True)
 
 
+def _add_cpi_trend_cols(stats: pd.DataFrame, raw_sub: pd.DataFrame,
+                         group_col: str) -> pd.DataFrame:
+    """為 stats DataFrame 加上 14 天 sparkline + 昨日/3日/7日 CPI 四欄。
+
+    沒安裝那天的單日 CPI = 0;3日/7日 CPI 用累積花費 / 累積安裝(不是平均)。
+    """
+    if raw_sub.empty or stats.empty:
+        return stats
+    max_d = raw_sub["date"].max()
+    max_d_norm = max_d.normalize()
+    start_14d = (max_d - pd.Timedelta(days=13)).normalize()
+    sub_14d = raw_sub[raw_sub["date"] >= start_14d].copy()
+    sub_14d["date_only"] = sub_14d["date"].dt.normalize()
+    date_range_14d = pd.date_range(start=start_14d, end=max_d_norm, freq="D")
+
+    daily = sub_14d.groupby([group_col, "date_only"]).agg(
+        spend=("spend", "sum"),
+        installs=("installs", "sum"),
+    ).reset_index()
+
+    sparkline_map, yday_map, d3_map, d7_map = {}, {}, {}, {}
+    for key in stats[group_col].unique():
+        ad_daily = daily[daily[group_col] == key].set_index("date_only")
+        # 14 天 sparkline
+        cpi_values = []
+        for d in date_range_14d:
+            if d in ad_daily.index:
+                sp = ad_daily.loc[d, "spend"]
+                inst = ad_daily.loc[d, "installs"]
+                cpi_values.append(round(sp / inst, 2) if inst > 0 else 0.0)
+            else:
+                cpi_values.append(0.0)
+        sparkline_map[key] = cpi_values
+        # 昨日(最新一天)
+        if max_d_norm in ad_daily.index:
+            sp = ad_daily.loc[max_d_norm, "spend"]
+            inst = ad_daily.loc[max_d_norm, "installs"]
+            yday_map[key] = round(sp / inst, 2) if inst > 0 else 0.0
+        else:
+            yday_map[key] = 0.0
+        # 3 日累積
+        d3_data = ad_daily.loc[ad_daily.index >= max_d_norm - pd.Timedelta(days=2)]
+        sp3, inst3 = d3_data["spend"].sum(), d3_data["installs"].sum()
+        d3_map[key] = round(sp3 / inst3, 2) if inst3 > 0 else 0.0
+        # 7 日累積
+        d7_data = ad_daily.loc[ad_daily.index >= max_d_norm - pd.Timedelta(days=6)]
+        sp7, inst7 = d7_data["spend"].sum(), d7_data["installs"].sum()
+        d7_map[key] = round(sp7 / inst7, 2) if inst7 > 0 else 0.0
+
+    stats = stats.copy()
+    stats["CPI 走勢"] = stats[group_col].map(sparkline_map)
+    stats["昨日CPI"] = stats[group_col].map(yday_map)
+    stats["3日CPI"] = stats[group_col].map(d3_map)
+    stats["7日CPI"] = stats[group_col].map(d7_map)
+    return stats
+
+
 def _meta_metrics(df: pd.DataFrame, group_col: str) -> pd.DataFrame:
     """共用:計算 Meta drill-down 各層級的標準指標(花費/安裝/CPI/CTR/CVR/CPM)。"""
     g = df.groupby(group_col).agg(
@@ -583,11 +640,38 @@ def _meta_metrics(df: pd.DataFrame, group_col: str) -> pd.DataFrame:
 
 
 def _meta_render_table(stats: pd.DataFrame, key_col: str, label: str, table_key: str) -> int:
-    """顯示帶選取的 dataframe,回傳被點擊的列索引(-1 = 沒選)。"""
-    disp = stats[[key_col, "spend", "installs", "CPI($)", "CTR(%)", "CVR(%)", "CPM($)"]].copy()
-    disp.columns = [label, "花費($)", "安裝", "CPI($)", "CTR(%)", "CVR(%)", "CPM($)"]
+    """顯示帶選取的 dataframe,回傳被點擊的列索引(-1 = 沒選)。
+
+    若 stats 含 CPI 走勢 / 昨日CPI / 3日CPI / 7日CPI 欄,會自動加進顯示。
+    """
+    has_trend = "CPI 走勢" in stats.columns
+    base_cols = [key_col, "spend", "installs", "CPI($)", "CTR(%)", "CVR(%)", "CPM($)"]
+    base_labels = [label, "花費($)", "安裝", "CPI($)", "CTR(%)", "CVR(%)", "CPM($)"]
+
+    if has_trend:
+        extra_cols = ["昨日CPI", "3日CPI", "7日CPI", "CPI 走勢"]
+        extra_labels = ["昨日CPI($)", "3日CPI($)", "7日CPI($)", "CPI 走勢(14天)"]
+    else:
+        extra_cols, extra_labels = [], []
+
+    disp = stats[base_cols + extra_cols].copy()
+    disp.columns = base_labels + extra_labels
     disp["花費($)"] = disp["花費($)"].apply(lambda x: f"${x:,.0f}")
     disp["安裝"] = disp["安裝"].apply(lambda x: f"{int(x):,}")
+
+    column_config = {}
+    if has_trend:
+        column_config = {
+            "昨日CPI($)": st.column_config.NumberColumn(
+                "昨日CPI($)", help="最新一天的 CPI", format="$%.2f"),
+            "3日CPI($)": st.column_config.NumberColumn(
+                "3日CPI($)", help="最近 3 天累積花費 / 累積安裝", format="$%.2f"),
+            "7日CPI($)": st.column_config.NumberColumn(
+                "7日CPI($)", help="最近 7 天累積花費 / 累積安裝", format="$%.2f"),
+            "CPI 走勢(14天)": st.column_config.LineChartColumn(
+                "CPI 走勢(14天)", help="最近 14 天 CPI 變化(沒安裝那天 = 0)", y_min=0),
+        }
+
     event = st.dataframe(
         disp,
         hide_index=True,
@@ -596,6 +680,7 @@ def _meta_render_table(stats: pd.DataFrame, key_col: str, label: str, table_key:
         on_select="rerun",
         selection_mode="single-row",
         key=table_key,
+        column_config=column_config,
     )
     if event and getattr(event, "selection", None):
         rows = event.selection.get("rows", [])
@@ -676,6 +761,7 @@ def deep_dive_meta(date_start, date_end, os_choice="全部", country_choice="全
     if ss.meta_drill_campaign is None:
         st.caption("👇 **點任一列查看該 Campaign 的 Ad Group**")
         stats = _meta_metrics(df, "campaign")
+        stats = _add_cpi_trend_cols(stats, df, "campaign")
         idx = _meta_render_table(stats, "campaign", "Campaign", "tbl_meta_campaign")
         if idx >= 0:
             ss.meta_drill_campaign = stats.iloc[idx]["campaign"]
@@ -712,61 +798,12 @@ def deep_dive_meta(date_start, date_end, os_choice="全部", country_choice="全
         status_map = _latest_status_map(sub, "ad")
         stats["狀態"] = stats["ad"].map(lambda x: _status_zh(status_map.get(x, "")))
 
-        # 計算每個素材最近 14 天的每日 CPI(沒安裝那天 = 0)
+        # 加 14 天 sparkline + 昨日/3日/7日 CPI
+        stats = _add_cpi_trend_cols(stats, sub, "ad")
+
+        # 計算用變數(給後續詳細圖)
         max_d = sub["date"].max()
         start_14d = (max_d - pd.Timedelta(days=13)).normalize()
-        sub_14d = sub[sub["date"] >= start_14d].copy()
-        sub_14d["date_only"] = sub_14d["date"].dt.normalize()
-        date_range_14d = pd.date_range(start=start_14d, end=max_d.normalize(), freq="D")
-
-        daily_ad = sub_14d.groupby(["ad", "date_only"]).agg(
-            spend=("spend", "sum"),
-            installs=("installs", "sum"),
-        ).reset_index()
-
-        # 為每個素材填滿 14 天 sparkline + 計算昨日 / 3日 / 7日 CPI
-        max_d_norm = max_d.normalize()
-        sparkline_map = {}
-        yday_cpi_map = {}
-        d3_cpi_map = {}
-        d7_cpi_map = {}
-        for ad_name in stats["ad"].unique():
-            ad_daily = daily_ad[daily_ad["ad"] == ad_name].set_index("date_only")
-            # 14 天 sparkline
-            cpi_values = []
-            for d in date_range_14d:
-                if d in ad_daily.index:
-                    sp = ad_daily.loc[d, "spend"]
-                    inst = ad_daily.loc[d, "installs"]
-                    cpi_values.append(round(sp / inst, 2) if inst > 0 else 0.0)
-                else:
-                    cpi_values.append(0.0)
-            sparkline_map[ad_name] = cpi_values
-
-            # 昨日 = 最新日
-            if max_d_norm in ad_daily.index:
-                sp = ad_daily.loc[max_d_norm, "spend"]
-                inst = ad_daily.loc[max_d_norm, "installs"]
-                yday_cpi_map[ad_name] = round(sp / inst, 2) if inst > 0 else 0.0
-            else:
-                yday_cpi_map[ad_name] = 0.0
-
-            # 3 日彙總 CPI = 最近 3 天 spend / 最近 3 天 installs
-            d3_start = max_d_norm - pd.Timedelta(days=2)
-            d3_data = ad_daily.loc[ad_daily.index >= d3_start]
-            sp3, inst3 = d3_data["spend"].sum(), d3_data["installs"].sum()
-            d3_cpi_map[ad_name] = round(sp3 / inst3, 2) if inst3 > 0 else 0.0
-
-            # 7 日彙總 CPI
-            d7_start = max_d_norm - pd.Timedelta(days=6)
-            d7_data = ad_daily.loc[ad_daily.index >= d7_start]
-            sp7, inst7 = d7_data["spend"].sum(), d7_data["installs"].sum()
-            d7_cpi_map[ad_name] = round(sp7 / inst7, 2) if inst7 > 0 else 0.0
-
-        stats["CPI 走勢"] = stats["ad"].map(sparkline_map)
-        stats["昨日CPI"] = stats["ad"].map(yday_cpi_map)
-        stats["3日CPI"] = stats["ad"].map(d3_cpi_map)
-        stats["7日CPI"] = stats["ad"].map(d7_cpi_map)
 
         st.caption("👇 **點任一列查看該素材 14 天 CPI / 花費 / 安裝 趨勢圖**")
         disp = stats[["狀態", "ad", "spend", "installs", "CPI($)",
