@@ -22,6 +22,96 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ── 全域 CSS:隱藏 Streamlit 預設裝飾 + 提升質感 ──────────────────────
+_GLOBAL_CSS = """
+<style>
+/* 1. 隱藏 Streamlit 預設元素(menu / footer / deploy / 彩條)*/
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden; height: 0;}
+header[data-testid="stHeader"] {background: transparent; height: 0;}
+[data-testid="stToolbar"] {display: none;}
+[data-testid="stDecoration"] {display: none;}
+[data-testid="stStatusWidget"] {display: none;}
+
+/* 2. 主容器:收窄留白、加大寬度上限 */
+.block-container {
+    padding-top: 2.2rem !important;
+    padding-bottom: 2.5rem !important;
+    max-width: 1480px;
+}
+
+/* 3. 標題字重與字距 */
+h1 {font-weight: 800 !important; letter-spacing: -0.6px;}
+h2 {font-weight: 700 !important; letter-spacing: -0.3px;}
+h3 {font-weight: 700 !important;}
+
+/* 4. Tabs:現代膠囊樣式 */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 6px;
+    border-bottom: 1px solid #1E293B;
+}
+.stTabs [data-baseweb="tab"] {
+    border-radius: 9px 9px 0 0;
+    padding: 9px 18px;
+    font-weight: 600;
+    transition: all 0.15s ease;
+}
+.stTabs [data-baseweb="tab"]:hover {
+    background: rgba(59, 130, 246, 0.10);
+}
+.stTabs [aria-selected="true"] {
+    background: rgba(59, 130, 246, 0.14);
+}
+
+/* 5. 按鈕:圓角 + hover 微浮起 */
+.stButton button, .stDownloadButton button {
+    border-radius: 9px;
+    font-weight: 600;
+    border: 1px solid #334155;
+    transition: all 0.15s ease;
+}
+.stButton button:hover, .stDownloadButton button:hover {
+    transform: translateY(-1px);
+    border-color: #3B82F6;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.18);
+}
+
+/* 6. DataFrame / 表格:圓角邊框 */
+[data-testid="stDataFrame"] {
+    border-radius: 11px;
+    overflow: hidden;
+    border: 1px solid #1E293B;
+}
+
+/* 7. Sidebar:右側分隔線 + 內距 */
+[data-testid="stSidebar"] {
+    border-right: 1px solid #1E293B;
+}
+[data-testid="stSidebar"] .block-container {padding-top: 1.4rem;}
+
+/* 8. Expander:圓角卡片感 */
+[data-testid="stExpander"] {
+    border-radius: 10px;
+    border: 1px solid #1E293B;
+}
+
+/* 9. Radio / Selectbox 輕微圓角 */
+.stRadio, .stSelectbox, .stMultiSelect {font-size: 14px;}
+
+/* 10. 區塊分隔線變淡 */
+hr {border-color: #1E293B !important; margin: 1rem 0;}
+
+/* 11. 連結色配主題藍 */
+a {color: #60A5FA !important;}
+
+/* 12. 捲軸細化(深色)*/
+::-webkit-scrollbar {width: 9px; height: 9px;}
+::-webkit-scrollbar-thumb {background: #334155; border-radius: 5px;}
+::-webkit-scrollbar-thumb:hover {background: #475569;}
+</style>
+"""
+st.markdown(_GLOBAL_CSS, unsafe_allow_html=True)
+
 require_password()
 
 # 媒體配色(維持品牌色感)
