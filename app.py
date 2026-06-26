@@ -197,6 +197,12 @@ _KPI_CSS = """
     padding:10px 14px;margin-bottom:10px;
     box-shadow:0 1px 3px rgba(0,0,0,0.3);
     display:flex;align-items:center;gap:10px;min-height:84px;
+    transition:transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+.kpi-card:hover{
+    transform:translateY(-2px);
+    box-shadow:0 6px 18px rgba(0,0,0,0.35);
+    border-color:#475569;
 }
 .kpi-vol{background:linear-gradient(135deg,#1E3A5F 0%,#1E293B 100%);border-color:#3B82F6}
 .kpi-rate{background:linear-gradient(135deg,#3F2A0E 0%,#1E293B 100%);border-color:#D97706}
@@ -1343,11 +1349,36 @@ if media_choice != "全部":
     df = df[df["media"] == media_choice]
     df_prev = df_prev[df_prev["media"] == media_choice] if not df_prev.empty else df_prev
 
-st.title("🌊 Ocean Fishooter 廣告儀表板")
-st.caption(
-    f"UA 投放 | 媒體:{media_choice} × 國家:{country_choice} × OS:{os_choice}"
+st.markdown(
+    f"""
+    <div style="
+        background: linear-gradient(120deg, #1E40AF 0%, #1E3A5F 38%, #0E1117 100%);
+        border: 1px solid #25406B;
+        border-radius: 16px;
+        padding: 22px 28px;
+        margin-bottom: 20px;
+        display: flex; align-items: center; gap: 18px;
+        box-shadow: 0 4px 18px rgba(30, 64, 175, 0.18);
+    ">
+        <div style="font-size: 42px; line-height: 1;">🌊</div>
+        <div style="flex: 1;">
+            <div style="font-size: 27px; font-weight: 800; color: #F8FAFC;
+                        letter-spacing: -0.6px; line-height: 1.15;">
+                Ocean Fishooter 廣告儀表板
+            </div>
+            <div style="font-size: 13px; color: #B6C2D4; margin-top: 5px;">
+                UA 投放總覽　・　媒體:<b style="color:#E2E8F0">{media_choice}</b>
+                　×　國家:<b style="color:#E2E8F0">{country_choice}</b>
+                　×　OS:<b style="color:#E2E8F0">{os_choice}</b>
+            </div>
+        </div>
+        <div style="text-align:right; font-size:11.5px; color:#8FA3BD; line-height:1.6;">
+            🎰 Ocean Fishooter<br>UA Dashboard
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
-st.markdown("---")
 
 tab1, tab2 = st.tabs([
     "🎯 投放總覽",
