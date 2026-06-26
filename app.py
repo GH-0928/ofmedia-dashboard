@@ -504,10 +504,15 @@ def _latest_status_map(df: pd.DataFrame, group_col: str) -> dict:
     return dict(zip(latest[group_col], latest["status"]))
 
 
-def _meta_ad_detail_chart(sub: pd.DataFrame, ad_name: str,
-                            start_date, end_date) -> None:
-    """素材層 ── 顯示某個素材的 14 天詳細走勢:CPI / 花費 / 安裝 三軸。"""
-    ad_df = sub[sub["ad"] == ad_name].copy()
+def _meta_ad_detail_chart(sub: pd.DataFrame, name: str,
+                            start_date, end_date, group_col: str = "ad") -> None:
+    """顯示某個項目(素材 / Campaign / Ad Group)的 14 天詳細走勢。
+
+    上:CPI / 花費 / 安裝 三軸主圖
+    下:CTR+CVR 雙軸 + CPM 單圖(輔助診斷)
+    group_col 決定是按哪一層聚合(ad / campaign / ad_group)。
+    """
+    ad_df = sub[sub[group_col] == name].copy()
     ad_df["date_only"] = ad_df["date"].dt.normalize()
     daily = ad_df.groupby("date_only").agg(
         spend=("spend", "sum"),
@@ -864,10 +869,24 @@ def deep_dive_meta(date_start, date_end, os_choice="全部", country_choice="全
 
     # ── 第 1 層:Campaign ──
     if ss.meta_drill_campaign is None:
-        st.caption("👇 **點任一列查看該 Campaign 的 Ad Group**")
+        st.caption("👇 **點任一列的選取框 → 進入該 Campaign 的 Ad Group**")
         stats = _meta_metrics(df, "campaign")
         stats = _add_cpi_trend_cols(stats, df, "campaign")
         idx = _meta_render_table(stats, "campaign", "Campaign", "tbl_meta_campaign")
+
+        # 獨立的趨勢圖選擇(與上方點選下鑽互不影響)
+        st.markdown("---")
+        cmp_opts = ["(不選)"] + stats["campaign"].tolist()
+        cmp_for_chart = st.selectbox(
+            "📊 選一個 Campaign 查看 14 天趨勢圖(此選擇不會觸發下鑽)",
+            cmp_opts, key="cmp_chart_select")
+        if cmp_for_chart != "(不選)":
+            max_d = df["date"].max()
+            start_14d = (max_d - pd.Timedelta(days=13)).normalize()
+            st.subheader(f"📈 {cmp_for_chart}  ── 14 天詳細走勢")
+            _meta_ad_detail_chart(df, cmp_for_chart, start_14d, max_d,
+                                   group_col="campaign")
+
         if idx >= 0:
             ss.meta_drill_campaign = stats.iloc[idx]["campaign"]
             st.rerun()
