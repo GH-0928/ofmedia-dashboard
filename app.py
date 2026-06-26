@@ -531,7 +531,7 @@ def _meta_ad_detail_chart(sub: pd.DataFrame, ad_name: str,
     fig = go.Figure()
     fig.add_trace(go.Bar(
         x=full["date_only"], y=full["spend"], name="花費",
-        marker_color=COLOR_SPEND, opacity=0.45, yaxis="y1",
+        marker_color=COLOR_SPEND, opacity=0.22, yaxis="y1",
         hovertemplate="💰 $%{y:,.2f}<extra></extra>",
     ))
     fig.add_trace(go.Scatter(
