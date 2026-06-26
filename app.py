@@ -504,6 +504,65 @@ def _latest_status_map(df: pd.DataFrame, group_col: str) -> dict:
     return dict(zip(latest[group_col], latest["status"]))
 
 
+def _meta_ad_detail_chart(sub: pd.DataFrame, ad_name: str,
+                            start_date, end_date) -> None:
+    """素材層 ── 顯示某個素材的 7 天詳細走勢:CPI / 花費 / 安裝 三軸。"""
+    ad_df = sub[sub["ad"] == ad_name].copy()
+    ad_df["date_only"] = ad_df["date"].dt.normalize()
+    daily = ad_df.groupby("date_only").agg(
+        spend=("spend", "sum"),
+        installs=("installs", "sum"),
+    ).reset_index()
+
+    # 填滿 7 天空白日期
+    date_range = pd.date_range(start=start_date, end=end_date.normalize(), freq="D")
+    full = pd.DataFrame({"date_only": date_range})
+    full = full.merge(daily, on="date_only", how="left").fillna(0)
+    full["cpi"] = full.apply(
+        lambda r: round(r["spend"] / r["installs"], 2) if r["installs"] > 0 else 0,
+        axis=1,
+    )
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=full["date_only"], y=full["spend"], name="花費",
+        marker_color="#60A5FA", opacity=0.55, yaxis="y1",
+        hovertemplate="💰 $%{y:,.2f}<extra></extra>",
+    ))
+    fig.add_trace(go.Scatter(
+        x=full["date_only"], y=full["installs"], name="安裝",
+        mode="lines+markers", line=dict(color="#F1F5F9", width=2.5),
+        marker=dict(size=7), yaxis="y2",
+        hovertemplate="📲 %{y:,.0f}<extra></extra>",
+    ))
+    fig.add_trace(go.Scatter(
+        x=full["date_only"], y=full["cpi"], name="CPI",
+        mode="lines+markers", line=dict(color="#F87171", width=2.5, dash="dot"),
+        marker=dict(size=7), yaxis="y3",
+        hovertemplate="💎 $%{y:.2f}<extra></extra>",
+    ))
+    fig.update_layout(
+        template="plotly_dark",
+        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+        height=380, hovermode="x unified",
+        margin=dict(t=30, b=20, l=10, r=80),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        xaxis=dict(showgrid=True, gridcolor="#334155", domain=[0, 0.92],
+                   tickformat="%m/%d", type="date"),
+        yaxis=dict(title=dict(text="花費 ($)", font=dict(color="#60A5FA")),
+                   showgrid=True, gridcolor="#334155",
+                   tickfont=dict(color="#60A5FA")),
+        yaxis2=dict(title=dict(text="安裝", font=dict(color="#F1F5F9")),
+                    overlaying="y", side="right", showgrid=False,
+                    position=0.92, tickfont=dict(color="#F1F5F9")),
+        yaxis3=dict(title=dict(text="CPI ($)", font=dict(color="#F87171")),
+                    overlaying="y", side="right", showgrid=False,
+                    anchor="free", position=1.0,
+                    tickfont=dict(color="#F87171")),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
 def _meta_metrics(df: pd.DataFrame, group_col: str) -> pd.DataFrame:
     """共用:計算 Meta drill-down 各層級的標準指標(花費/安裝/CPI/CTR/CVR/CPM)。"""
     g = df.groupby(group_col).agg(
@@ -652,13 +711,70 @@ def deep_dive_meta(date_start, date_end, os_choice="全部", country_choice="全
         # 加狀態欄(各素材最新一筆的 status)
         status_map = _latest_status_map(sub, "ad")
         stats["狀態"] = stats["ad"].map(lambda x: _status_zh(status_map.get(x, "")))
+
+        # 計算每個素材最近 7 天的每日 CPI(沒安裝那天 = 0)
+        max_d = sub["date"].max()
+        start_7d = (max_d - pd.Timedelta(days=6)).normalize()
+        sub_7d = sub[sub["date"] >= start_7d].copy()
+        sub_7d["date_only"] = sub_7d["date"].dt.normalize()
+        date_range_7d = pd.date_range(start=start_7d, end=max_d.normalize(), freq="D")
+
+        daily_ad = sub_7d.groupby(["ad", "date_only"]).agg(
+            spend=("spend", "sum"),
+            installs=("installs", "sum"),
+        ).reset_index()
+        # 為每個素材填滿 7 天
+        sparkline_map = {}
+        for ad_name in stats["ad"].unique():
+            ad_daily = daily_ad[daily_ad["ad"] == ad_name].set_index("date_only")
+            cpi_values = []
+            for d in date_range_7d:
+                if d in ad_daily.index:
+                    sp = ad_daily.loc[d, "spend"]
+                    inst = ad_daily.loc[d, "installs"]
+                    cpi_values.append(round(sp / inst, 2) if inst > 0 else 0.0)
+                else:
+                    cpi_values.append(0.0)
+            sparkline_map[ad_name] = cpi_values
+
+        stats["CPI 走勢"] = stats["ad"].map(sparkline_map)
+
+        st.caption("👇 **點任一列查看該素材 7 天 CPI / 花費 / 安裝 趨勢圖**")
         disp = stats[["狀態", "ad", "spend", "installs", "CPI($)",
-                       "CTR(%)", "CVR(%)", "CPM($)"]].copy()
+                       "CTR(%)", "CVR(%)", "CPM($)", "CPI 走勢"]].copy()
         disp.columns = ["狀態", "素材(Ad)", "花費($)", "安裝", "CPI($)",
-                         "CTR(%)", "CVR(%)", "CPM($)"]
+                         "CTR(%)", "CVR(%)", "CPM($)", "CPI 走勢(7天)"]
         disp["花費($)"] = disp["花費($)"].apply(lambda x: f"${x:,.0f}")
         disp["安裝"] = disp["安裝"].apply(lambda x: f"{int(x):,}")
-        st.dataframe(disp, hide_index=True, use_container_width=True, height=460)
+
+        event = st.dataframe(
+            disp,
+            hide_index=True,
+            use_container_width=True,
+            height=460,
+            on_select="rerun",
+            selection_mode="single-row",
+            key="tbl_meta_ad",
+            column_config={
+                "CPI 走勢(7天)": st.column_config.LineChartColumn(
+                    "CPI 走勢(7天)",
+                    help="最近 7 天 CPI 變化(沒安裝那天 = 0)",
+                    y_min=0,
+                ),
+            },
+        )
+
+        # 點選列 → 顯示該素材詳細時序圖
+        selected_ad = None
+        if event and getattr(event, "selection", None):
+            rows = event.selection.get("rows", [])
+            if rows:
+                selected_ad = stats.iloc[rows[0]]["ad"]
+
+        if selected_ad:
+            st.markdown("---")
+            st.subheader(f"📈 {selected_ad}  ── 7 天詳細走勢")
+            _meta_ad_detail_chart(sub, selected_ad, start_7d, max_d)
 
 
 _MATCH_TYPE_DISPLAY = {
