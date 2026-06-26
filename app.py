@@ -585,36 +585,63 @@ def _meta_ad_detail_chart(sub: pd.DataFrame, ad_name: str,
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    # ── 輔助診斷:CTR / CVR / CPM 三個小趨勢圖(全寬堆疊,X 軸與主圖完美垂直對齊)──
+    # ── 輔助診斷:CTR+CVR 合併雙軸 + CPM 單圖(全寬堆疊,X 軸與主圖對齊)──
     st.caption("🔍 輔助診斷指標(X 軸與上圖對齊,可垂直比對某天)")
 
-    def _mini_chart(x, y, title, color, suffix=""):
-        mfig = go.Figure()
-        mfig.add_trace(go.Scatter(
-            x=x, y=y, mode="lines+markers",
-            line=dict(color=color, width=2.2), marker=dict(size=5),
-            hovertemplate=f"%{{y:.2f}}{suffix}<extra></extra>",
-        ))
-        mfig.update_layout(
-            template="plotly_dark",
-            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-            height=170, hovermode="x unified",
-            margin=dict(t=28, b=18, l=60, r=80),
-            title=dict(text=title, font=dict(size=13.5, color=color), x=0.01, y=0.97),
-            showlegend=False,
-            xaxis=dict(showgrid=True, gridcolor="#334155", domain=[0, 0.92],
-                       tickformat="%m/%d", type="date", range=[x_start, x_end]),
-            yaxis=dict(showgrid=True, gridcolor="#334155",
-                       rangemode="tozero", automargin=False),
-        )
-        st.plotly_chart(mfig, use_container_width=True)
+    # CTR(左軸) + CVR(右軸)合併:漏斗效率,看素材吸引 → 轉化哪段出問題
+    funnel = go.Figure()
+    funnel.add_trace(go.Scatter(
+        x=full["date_only"], y=full["ctr"], name="CTR(%)",
+        mode="lines+markers", line=dict(color="#22D3EE", width=2.2),
+        marker=dict(size=5), yaxis="y1",
+        hovertemplate="📣 CTR %{y:.2f}%<extra></extra>",
+    ))
+    funnel.add_trace(go.Scatter(
+        x=full["date_only"], y=full["cvr"], name="CVR(%)",
+        mode="lines+markers", line=dict(color="#A78BFA", width=2.2),
+        marker=dict(size=5), yaxis="y2",
+        hovertemplate="🔁 CVR %{y:.2f}%<extra></extra>",
+    ))
+    funnel.update_layout(
+        template="plotly_dark",
+        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+        height=220, hovermode="x unified",
+        margin=dict(t=30, b=18, l=60, r=80),
+        title=dict(text="📣 CTR ─ 素材吸引力　🔁 CVR ─ 點擊後轉化",
+                   font=dict(size=13.5, color="#CBD5E1"), x=0.01, y=0.97),
+        legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=0.91),
+        xaxis=dict(showgrid=True, gridcolor="#334155", domain=[0, 0.92],
+                   tickformat="%m/%d", type="date", range=[x_start, x_end]),
+        yaxis=dict(title=dict(text="CTR (%)", font=dict(color="#22D3EE")),
+                   showgrid=True, gridcolor="#334155", rangemode="tozero",
+                   automargin=False, tickfont=dict(color="#22D3EE")),
+        yaxis2=dict(title=dict(text="CVR (%)", font=dict(color="#A78BFA")),
+                    overlaying="y", side="right", showgrid=False,
+                    rangemode="tozero", tickfont=dict(color="#A78BFA")),
+    )
+    st.plotly_chart(funnel, use_container_width=True)
 
-    _mini_chart(full["date_only"], full["ctr"],
-                "📣 CTR(%)  ─ 往下掉 = 素材疲乏 / 吸引力弱", "#22D3EE", suffix="%")
-    _mini_chart(full["date_only"], full["cvr"],
-                "🔁 CVR(%)  ─ 往下掉 = 點了不裝(落地頁 / 受眾)", "#A78BFA", suffix="%")
-    _mini_chart(full["date_only"], full["cpm"],
-                "📡 CPM($)  ─ 往上漲 = 流量變貴 / 競爭加劇", "#FB923C", suffix="")
+    # CPM 單圖:流量成本 / 競爭強度
+    cpm_fig = go.Figure()
+    cpm_fig.add_trace(go.Scatter(
+        x=full["date_only"], y=full["cpm"], mode="lines+markers",
+        line=dict(color="#FB923C", width=2.2), marker=dict(size=5),
+        hovertemplate="📡 CPM $%{y:.2f}<extra></extra>",
+    ))
+    cpm_fig.update_layout(
+        template="plotly_dark",
+        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+        height=180, hovermode="x unified",
+        margin=dict(t=28, b=18, l=60, r=80),
+        title=dict(text="📡 CPM($)  ─ 往上漲 = 流量變貴 / 競爭加劇",
+                   font=dict(size=13.5, color="#FB923C"), x=0.01, y=0.97),
+        showlegend=False,
+        xaxis=dict(showgrid=True, gridcolor="#334155", domain=[0, 0.92],
+                   tickformat="%m/%d", type="date", range=[x_start, x_end]),
+        yaxis=dict(showgrid=True, gridcolor="#334155",
+                   rangemode="tozero", automargin=False),
+    )
+    st.plotly_chart(cpm_fig, use_container_width=True)
 
 
 def _add_cpi_trend_cols(stats: pd.DataFrame, raw_sub: pd.DataFrame,
