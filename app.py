@@ -114,14 +114,14 @@ st.markdown(_GLOBAL_CSS, unsafe_allow_html=True)
 
 require_password()
 
-# 媒體配色(維持品牌色感)
+# 媒體配色:深色背景下高對比、6 色色相拉開(犧牲品牌色換取易辨識)
 MEDIA_COLORS = {
-    "Meta": "#1877F2",
-    "ASA": "#999999",
-    "Google": "#4285F4",
-    "TikTok": "#000000",
-    "Applovin": "#FF5C5C",
-    "Moloco": "#7C3AED",
+    "Meta": "#4F8EF7",      # 亮藍
+    "Google": "#34D399",    # 翠綠
+    "ASA": "#CBD5E1",       # 亮灰(Apple 中性)
+    "TikTok": "#F472B6",    # 粉紅
+    "Applovin": "#FB923C",  # 橘
+    "Moloco": "#A78BFA",    # 紫
 }
 
 # ──────────────────────────────────────────────────────────────────────
@@ -332,6 +332,8 @@ def show_media_mix(df: pd.DataFrame) -> None:
         fig = px.pie(media_stats, values="spend", names="media",
                      title="花費分布", color="media",
                      color_discrete_map=MEDIA_COLORS, hole=0.4)
+        fig.update_traces(marker=dict(line=dict(color="#0E1117", width=2)),
+                          textfont=dict(color="#0F172A", size=13))
         fig.update_layout(template="plotly_dark", height=320,
                           paper_bgcolor="rgba(0,0,0,0)",
                           plot_bgcolor="rgba(0,0,0,0)",
@@ -341,6 +343,8 @@ def show_media_mix(df: pd.DataFrame) -> None:
         fig2 = px.pie(media_stats, values="installs", names="media",
                       title="安裝分布", color="media",
                       color_discrete_map=MEDIA_COLORS, hole=0.4)
+        fig2.update_traces(marker=dict(line=dict(color="#0E1117", width=2)),
+                           textfont=dict(color="#0F172A", size=13))
         fig2.update_layout(template="plotly_dark", height=320,
                            paper_bgcolor="rgba(0,0,0,0)",
                            plot_bgcolor="rgba(0,0,0,0)",
