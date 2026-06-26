@@ -523,22 +523,27 @@ def _meta_ad_detail_chart(sub: pd.DataFrame, ad_name: str,
         axis=1,
     )
 
+    # 配色:CPI 跟上方 sparkline 同色(藍),安裝綠色(正向結果),花費琥珀色背景柱
+    COLOR_CPI = "#3B82F6"      # 亮藍,跟 sparkline 一致
+    COLOR_INSTALLS = "#10B981"  # 翠綠,正面結果
+    COLOR_SPEND = "#F59E0B"     # 琥珀,暖色背景
+
     fig = go.Figure()
     fig.add_trace(go.Bar(
         x=full["date_only"], y=full["spend"], name="花費",
-        marker_color="#60A5FA", opacity=0.55, yaxis="y1",
+        marker_color=COLOR_SPEND, opacity=0.45, yaxis="y1",
         hovertemplate="💰 $%{y:,.2f}<extra></extra>",
     ))
     fig.add_trace(go.Scatter(
         x=full["date_only"], y=full["installs"], name="安裝",
-        mode="lines+markers", line=dict(color="#F1F5F9", width=2.5),
+        mode="lines+markers", line=dict(color=COLOR_INSTALLS, width=2.2),
         marker=dict(size=7), yaxis="y2",
         hovertemplate="📲 %{y:,.0f}<extra></extra>",
     ))
     fig.add_trace(go.Scatter(
         x=full["date_only"], y=full["cpi"], name="CPI",
-        mode="lines+markers", line=dict(color="#F87171", width=2.5, dash="dot"),
-        marker=dict(size=7), yaxis="y3",
+        mode="lines+markers", line=dict(color=COLOR_CPI, width=3),
+        marker=dict(size=8), yaxis="y3",
         hovertemplate="💎 $%{y:.2f}<extra></extra>",
     ))
     fig.update_layout(
@@ -549,16 +554,16 @@ def _meta_ad_detail_chart(sub: pd.DataFrame, ad_name: str,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         xaxis=dict(showgrid=True, gridcolor="#334155", domain=[0, 0.92],
                    tickformat="%m/%d", type="date"),
-        yaxis=dict(title=dict(text="花費 ($)", font=dict(color="#60A5FA")),
+        yaxis=dict(title=dict(text="花費 ($)", font=dict(color=COLOR_SPEND)),
                    showgrid=True, gridcolor="#334155",
-                   tickfont=dict(color="#60A5FA")),
-        yaxis2=dict(title=dict(text="安裝", font=dict(color="#F1F5F9")),
+                   tickfont=dict(color=COLOR_SPEND)),
+        yaxis2=dict(title=dict(text="安裝", font=dict(color=COLOR_INSTALLS)),
                     overlaying="y", side="right", showgrid=False,
-                    position=0.92, tickfont=dict(color="#F1F5F9")),
-        yaxis3=dict(title=dict(text="CPI ($)", font=dict(color="#F87171")),
+                    position=0.92, tickfont=dict(color=COLOR_INSTALLS)),
+        yaxis3=dict(title=dict(text="CPI ($)", font=dict(color=COLOR_CPI)),
                     overlaying="y", side="right", showgrid=False,
                     anchor="free", position=1.0,
-                    tickfont=dict(color="#F87171")),
+                    tickfont=dict(color=COLOR_CPI)),
     )
     st.plotly_chart(fig, use_container_width=True)
 
