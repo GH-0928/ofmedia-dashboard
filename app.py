@@ -567,8 +567,8 @@ def _meta_ad_detail_chart(sub: pd.DataFrame, ad_name: str,
     fig.update_layout(
         template="plotly_dark",
         plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-        height=380, hovermode="x unified",
-        margin=dict(t=30, b=20, l=60, r=80),
+        height=300, hovermode="x unified",
+        margin=dict(t=24, b=20, l=60, r=80),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         xaxis=dict(showgrid=True, gridcolor="#334155", domain=[0, 0.92],
                    tickformat="%m/%d", type="date", range=[x_start, x_end]),
@@ -585,8 +585,8 @@ def _meta_ad_detail_chart(sub: pd.DataFrame, ad_name: str,
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    # ── 輔助診斷:CTR / CVR / CPM 三個小趨勢圖(全寬堆疊,X 軸與主圖對齊)──
-    st.caption("🔍 輔助診斷指標(找 CPI 變化的根本原因)")
+    # ── 輔助診斷:CTR / CVR / CPM 三個小趨勢圖(並排,一屏看完)──
+    st.caption("🔍 輔助診斷:**CTR↓** 素材疲乏 ・ **CVR↓** 落地頁/受眾問題 ・ **CPM↑** 競爭加劇")
 
     def _mini_chart(x, y, title, color, suffix=""):
         mfig = go.Figure()
@@ -598,23 +598,24 @@ def _meta_ad_detail_chart(sub: pd.DataFrame, ad_name: str,
         mfig.update_layout(
             template="plotly_dark",
             plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-            height=200, hovermode="x unified",
-            margin=dict(t=34, b=22, l=60, r=80),
-            title=dict(text=title, font=dict(size=14, color=color), x=0.01, y=0.96),
+            height=240, hovermode="x unified",
+            margin=dict(t=34, b=22, l=44, r=14),
+            title=dict(text=title, font=dict(size=15, color=color), x=0.02, y=0.97),
             showlegend=False,
-            xaxis=dict(showgrid=True, gridcolor="#334155", domain=[0, 0.92],
+            xaxis=dict(showgrid=True, gridcolor="#334155",
                        tickformat="%m/%d", type="date", range=[x_start, x_end]),
             yaxis=dict(showgrid=True, gridcolor="#334155",
                        rangemode="tozero", automargin=False),
         )
         st.plotly_chart(mfig, use_container_width=True)
 
-    _mini_chart(full["date_only"], full["ctr"],
-                "📣 CTR(%)  ─ 往下掉 = 素材疲乏 / 吸引力弱", "#22D3EE", suffix="%")
-    _mini_chart(full["date_only"], full["cvr"],
-                "🔁 CVR(%)  ─ 往下掉 = 點了不裝(落地頁 / 受眾問題)", "#A78BFA", suffix="%")
-    _mini_chart(full["date_only"], full["cpm"],
-                "📡 CPM($)  ─ 往上漲 = 流量變貴 / 競爭加劇", "#FB923C", suffix="")
+    m1, m2, m3 = st.columns(3)
+    with m1:
+        _mini_chart(full["date_only"], full["ctr"], "📣 CTR(%)", "#22D3EE", suffix="%")
+    with m2:
+        _mini_chart(full["date_only"], full["cvr"], "🔁 CVR(%)", "#A78BFA", suffix="%")
+    with m3:
+        _mini_chart(full["date_only"], full["cpm"], "📡 CPM($)", "#FB923C", suffix="")
 
 
 def _add_cpi_trend_cols(stats: pd.DataFrame, raw_sub: pd.DataFrame,
