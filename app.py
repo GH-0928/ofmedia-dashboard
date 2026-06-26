@@ -537,6 +537,18 @@ def _meta_ad_detail_chart(sub: pd.DataFrame, ad_name: str,
         axis=1,
     )
 
+    # 判讀指南(主圖:CPI / 花費 / 安裝)
+    with st.expander("📖 怎麼看這張圖?(CPI / 花費 / 安裝 判讀)", expanded=False):
+        st.markdown("""
+| 看到的型態 | 判讀 |
+|---|---|
+| CPI↑、花費平、**安裝↓** | 量在掉 → 效率惡化 |
+| CPI↑、**花費↑**、安裝沒等比漲 | 加碼踩到天花板 |
+| CPI↑、花費↑、安裝↑ | 正常擴量(成本微升可接受) |
+| **CPI↓、安裝↑** | 🌟 黃金狀態,值得加碼 |
+| 某天 CPI 暴衝、花費很低 | 量太少的雜訊,別當真 |
+""")
+
     # 配色:CPI 跟上方 sparkline 同色(藍),安裝綠色(正向結果),花費琥珀色背景柱
     COLOR_CPI = "#3B82F6"      # 亮藍,跟 sparkline 一致
     COLOR_INSTALLS = "#10B981"  # 翠綠,正面結果
@@ -587,6 +599,18 @@ def _meta_ad_detail_chart(sub: pd.DataFrame, ad_name: str,
 
     # ── 輔助診斷:CTR+CVR 合併雙軸 + CPM 單圖(全寬堆疊,X 軸與主圖對齊)──
     st.caption("🔍 輔助診斷指標(X 軸與上圖對齊,可垂直比對某天)")
+
+    # 判讀指南(CTR / CVR 漏斗)
+    with st.expander("📖 怎麼看 CTR / CVR?(漏斗診斷)", expanded=False):
+        st.markdown("""
+| 看到的型態 | 判讀 |
+|---|---|
+| **CTR↓、CVR 穩** | 素材吸不到人 → 該換創意 |
+| **CTR 穩、CVR↓** | 吸到人但不裝 → 落地頁 / 受眾精準度問題 |
+| **兩個都↓** | 整體素材疲乏或受眾飽和 |
+
+> 漏斗順序:曝光 ─CTR→ 點擊 ─CVR→ 安裝
+""")
 
     # CTR(左軸) + CVR(右軸)合併:漏斗效率,看素材吸引 → 轉化哪段出問題
     funnel = go.Figure()
