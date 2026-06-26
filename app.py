@@ -775,6 +775,7 @@ def deep_dive_meta(date_start, date_end, os_choice="全部", country_choice="全
             st.warning("此 Campaign 無 Ad Group 資料")
             return
         stats = _meta_metrics(sub, "ad_group")
+        stats = _add_cpi_trend_cols(stats, sub, "ad_group")
         idx = _meta_render_table(stats, "ad_group", "Ad Group", "tbl_meta_ad_group")
         if idx >= 0:
             ss.meta_drill_ad_group = stats.iloc[idx]["ad_group"]
