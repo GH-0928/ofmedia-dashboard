@@ -585,8 +585,8 @@ def _meta_ad_detail_chart(sub: pd.DataFrame, ad_name: str,
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    # ── 輔助診斷:CTR / CVR / CPM 三個小趨勢圖(並排,一屏看完)──
-    st.caption("🔍 輔助診斷:**CTR↓** 素材疲乏 ・ **CVR↓** 落地頁/受眾問題 ・ **CPM↑** 競爭加劇")
+    # ── 輔助診斷:CTR / CVR / CPM 三個小趨勢圖(全寬堆疊,X 軸與主圖完美垂直對齊)──
+    st.caption("🔍 輔助診斷指標(X 軸與上圖對齊,可垂直比對某天)")
 
     def _mini_chart(x, y, title, color, suffix=""):
         mfig = go.Figure()
@@ -598,24 +598,23 @@ def _meta_ad_detail_chart(sub: pd.DataFrame, ad_name: str,
         mfig.update_layout(
             template="plotly_dark",
             plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-            height=240, hovermode="x unified",
-            margin=dict(t=34, b=22, l=44, r=14),
-            title=dict(text=title, font=dict(size=15, color=color), x=0.02, y=0.97),
+            height=170, hovermode="x unified",
+            margin=dict(t=28, b=18, l=60, r=80),
+            title=dict(text=title, font=dict(size=13.5, color=color), x=0.01, y=0.97),
             showlegend=False,
-            xaxis=dict(showgrid=True, gridcolor="#334155",
+            xaxis=dict(showgrid=True, gridcolor="#334155", domain=[0, 0.92],
                        tickformat="%m/%d", type="date", range=[x_start, x_end]),
             yaxis=dict(showgrid=True, gridcolor="#334155",
                        rangemode="tozero", automargin=False),
         )
         st.plotly_chart(mfig, use_container_width=True)
 
-    m1, m2, m3 = st.columns(3)
-    with m1:
-        _mini_chart(full["date_only"], full["ctr"], "📣 CTR(%)", "#22D3EE", suffix="%")
-    with m2:
-        _mini_chart(full["date_only"], full["cvr"], "🔁 CVR(%)", "#A78BFA", suffix="%")
-    with m3:
-        _mini_chart(full["date_only"], full["cpm"], "📡 CPM($)", "#FB923C", suffix="")
+    _mini_chart(full["date_only"], full["ctr"],
+                "📣 CTR(%)  ─ 往下掉 = 素材疲乏 / 吸引力弱", "#22D3EE", suffix="%")
+    _mini_chart(full["date_only"], full["cvr"],
+                "🔁 CVR(%)  ─ 往下掉 = 點了不裝(落地頁 / 受眾)", "#A78BFA", suffix="%")
+    _mini_chart(full["date_only"], full["cpm"],
+                "📡 CPM($)  ─ 往上漲 = 流量變貴 / 競爭加劇", "#FB923C", suffix="")
 
 
 def _add_cpi_trend_cols(stats: pd.DataFrame, raw_sub: pd.DataFrame,
