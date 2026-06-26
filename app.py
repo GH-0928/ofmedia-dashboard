@@ -4,7 +4,7 @@
 資料源:OceanFishooter 廣告儀表板 Google Sheet 的 6 個 _raw 分頁
 頁籤:投放總覽 / 媒體成效 / 地區 OS / Campaign 表現 / 媒體深度
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pandas as pd
 import plotly.express as px
@@ -1273,15 +1273,52 @@ with st.sidebar:
     )
 
     st.title("篩選條件")
-    default_end = max_date.date()
-    default_start = default_end.replace(day=1)
-    if default_start < min_date.date():
-        default_start = min_date.date()
+    min_d_date = min_date.date()
+    max_d_date = max_date.date()
+
+    # 日期快速鈕(end 一律對齊最新資料日)
+    def _set_quick_range(days=None, this_month=False, single=False):
+        end = max_d_date
+        if single:
+            start = end
+        elif this_month:
+            start = end.replace(day=1)
+        else:
+            start = end - timedelta(days=days - 1)
+        if start < min_d_date:
+            start = min_d_date
+        st.session_state["date_picker"] = (start, end)
+
+    st.markdown(
+        "<div style='font-size:13px;color:#94A3B8;margin-bottom:4px'>快速範圍</div>",
+        unsafe_allow_html=True,
+    )
+    qc1, qc2, qc3, qc4 = st.columns(4)
+    if qc1.button("昨日", use_container_width=True):
+        _set_quick_range(single=True)
+        st.rerun()
+    if qc2.button("7天", use_container_width=True):
+        _set_quick_range(days=7)
+        st.rerun()
+    if qc3.button("14天", use_container_width=True):
+        _set_quick_range(days=14)
+        st.rerun()
+    if qc4.button("本月", use_container_width=True):
+        _set_quick_range(this_month=True)
+        st.rerun()
+
+    # 首次預設:當月
+    if "date_picker" not in st.session_state:
+        _ds = max_d_date.replace(day=1)
+        if _ds < min_d_date:
+            _ds = min_d_date
+        st.session_state["date_picker"] = (_ds, max_d_date)
+
     date_range = st.date_input(
-        "日期範圍",
-        value=(default_start, default_end),
-        min_value=min_date.date(),
-        max_value=max_date.date(),
+        "或自訂日期範圍",
+        key="date_picker",
+        min_value=min_d_date,
+        max_value=max_d_date,
     )
 
     # ── 國家篩選 ──
