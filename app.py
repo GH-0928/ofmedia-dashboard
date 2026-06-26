@@ -1276,50 +1276,38 @@ with st.sidebar:
     min_d_date = min_date.date()
     max_d_date = max_date.date()
 
-    # 日期快速鈕(end 一律對齊最新資料日)
-    def _set_quick_range(days=None, this_month=False, single=False):
+    # 日期範圍:radio 橫式單選(與 OS / 國家 / 媒體 一致),選「自訂」才出日曆
+    date_mode = st.radio(
+        "📅 日期範圍",
+        ["本月", "近7天", "近14天", "昨日", "自訂"],
+        horizontal=True, index=0,
+    )
+
+    if date_mode == "自訂":
+        if "date_picker" not in st.session_state:
+            _ds = max_d_date.replace(day=1)
+            if _ds < min_d_date:
+                _ds = min_d_date
+            st.session_state["date_picker"] = (_ds, max_d_date)
+        date_range = st.date_input(
+            "選擇日期",
+            key="date_picker",
+            min_value=min_d_date,
+            max_value=max_d_date,
+        )
+    else:
         end = max_d_date
-        if single:
+        if date_mode == "昨日":
             start = end
-        elif this_month:
+        elif date_mode == "近7天":
+            start = end - timedelta(days=6)
+        elif date_mode == "近14天":
+            start = end - timedelta(days=13)
+        else:  # 本月
             start = end.replace(day=1)
-        else:
-            start = end - timedelta(days=days - 1)
         if start < min_d_date:
             start = min_d_date
-        st.session_state["date_picker"] = (start, end)
-
-    st.markdown(
-        "<div style='font-size:13px;color:#94A3B8;margin-bottom:4px'>快速範圍</div>",
-        unsafe_allow_html=True,
-    )
-    qc1, qc2, qc3, qc4 = st.columns(4)
-    if qc1.button("昨日", use_container_width=True):
-        _set_quick_range(single=True)
-        st.rerun()
-    if qc2.button("7天", use_container_width=True):
-        _set_quick_range(days=7)
-        st.rerun()
-    if qc3.button("14天", use_container_width=True):
-        _set_quick_range(days=14)
-        st.rerun()
-    if qc4.button("本月", use_container_width=True):
-        _set_quick_range(this_month=True)
-        st.rerun()
-
-    # 首次預設:當月
-    if "date_picker" not in st.session_state:
-        _ds = max_d_date.replace(day=1)
-        if _ds < min_d_date:
-            _ds = min_d_date
-        st.session_state["date_picker"] = (_ds, max_d_date)
-
-    date_range = st.date_input(
-        "或自訂日期範圍",
-        key="date_picker",
-        min_value=min_d_date,
-        max_value=max_d_date,
-    )
+        date_range = (start, end)
 
     # ── 國家篩選 ──
     all_country = sorted(df_raw["country"].dropna().unique().tolist())
