@@ -14,6 +14,7 @@ import streamlit as st
 from auth import require_password
 from data import (load_unified, load_meta_raw, load_asa_raw,
                   load_google_raw, RAW_TABS)
+from calendar_view import render as render_calendar_todo
 
 st.set_page_config(
     page_title="Ocean Fishooter 廣告儀表板",
@@ -1405,9 +1406,10 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-tab1, tab2 = st.tabs([
+tab1, tab2, tab3 = st.tabs([
     "🎯 投放總覽",
     "🔍 媒體深度",
+    "📆 行事曆 / 待辦",
 ])
 
 with tab1:
@@ -1449,3 +1451,6 @@ with tab2:
                 st.markdown("---")
                 deep_dive_google(date_range[0], date_range[1], os_choice, country_choice)
         # TikTok / Applovin / Moloco 沒有獨家欄位,只看 campaign
+
+with tab3:
+    render_calendar_todo()
