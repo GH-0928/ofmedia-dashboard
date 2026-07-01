@@ -17,9 +17,8 @@ CAT_COLOR = {
 PRIORITIES = ["高", "一般", "低"]
 WEEK_LABELS = ["日", "一", "二", "三", "四", "五", "六"]
 
-# 廣告操作類型（方向分開，利於統計與 AI 分析）
-OP_TYPES = ["加預算", "降預算", "改出價/競價", "新增素材",
-            "關閉素材", "開 campaign", "關 campaign", "其他"]
+# 廣告操作類型
+OP_TYPES = ["預算調整", "出價調整", "素材優化", "新增Campaign", "關閉Campaign"]
 # 媒體清單與廣告資料同源（對照用），抓不到就退回固定清單
 try:
     from data import RAW_TABS
@@ -256,6 +255,55 @@ def _render_todos():
             st.rerun()
 
 
+def _op_row(o):
+    """單筆操作的精簡列（未編輯狀態）：摘要 + ✏️/🗑。"""
+    camp = o.get("campaign", "")
+    camp_short = (camp[:20] + "…") if len(camp) > 22 else camp
+    note = o.get("note", "")
+    note_short = (note[:44] + "…") if len(note) > 46 else note
+    label = f"<b>{html.escape(o.get('op_type',''))}</b>　·　{html.escape(o.get('media',''))}"
+    if camp_short:
+        label += f"　·　<code>{html.escape(camp_short)}</code>"
+    if note_short:
+        label += (f"<br><span style='color:#94a3b8;font-size:.76rem'>"
+                  f"{html.escape(note_short)}</span>")
+    c0, c1, c2 = st.columns([0.84, 0.08, 0.08])
+    c0.markdown(f"<div style='font-size:.85rem'>{label}</div>", unsafe_allow_html=True)
+    if c1.button("✏️", key=f"eop_{o['id']}"):
+        st.session_state["_edit_op"] = o["id"]
+        st.rerun()
+    if c2.button("🗑", key=f"dop_{o['id']}"):
+        gs.delete_op(o["id"])
+        st.session_state.pop("_edit_op", None)
+        st.rerun()
+
+
+def _op_edit_form(o):
+    """單筆操作的編輯表單（日期/媒體/操作類型 + campaign/備註）。"""
+    with st.form(f"edit_op_{o['id']}"):
+        e1, e2, e3 = st.columns([1, 1, 1.2])
+        ed = e1.date_input("日期", value=_parse_date(o.get("date", "")) or _today())
+        emedia = e2.selectbox("媒體", MEDIAS,
+                              index=MEDIAS.index(o["media"]) if o.get("media") in MEDIAS else 0)
+        eop = e3.selectbox("操作類型", OP_TYPES,
+                           index=OP_TYPES.index(o["op_type"]) if o.get("op_type") in OP_TYPES else 0)
+        ecamp = st.text_input("campaign", value=o.get("campaign", ""))
+        enote = st.text_area("備註", value=o.get("note", ""), height=90)
+        b1, b2, b3 = st.columns(3)
+        if b1.form_submit_button("儲存", type="primary"):
+            gs.update_op(o["id"], date=ed.isoformat(), media=emedia, op_type=eop,
+                         campaign=ecamp.strip(), note=enote.strip())
+            st.session_state.pop("_edit_op", None)
+            st.rerun()
+        if b2.form_submit_button("🗑 刪除"):
+            gs.delete_op(o["id"])
+            st.session_state.pop("_edit_op", None)
+            st.rerun()
+        if b3.form_submit_button("取消"):
+            st.session_state.pop("_edit_op", None)
+            st.rerun()
+
+
 def _render_ops():
     try:
         ops = gs.list_ops()
@@ -263,12 +311,12 @@ def _render_ops():
         st.error(f"讀取廣告操作失敗：{e}")
         return
 
-    # 快速輸入：一列搞定，最少必填（日期/類型/媒體），campaign 與備註選填
+    # 快速輸入：日期 / 媒體 / 操作類型（＋ campaign / 備註選填）
     with st.form("add_op_form", clear_on_submit=True):
-        c1, c2, c3 = st.columns([1, 1.2, 1])
+        c1, c2, c3 = st.columns([1, 1, 1.2])
         d = c1.date_input("日期", value=_today())
-        op_type = c2.selectbox("操作類型", OP_TYPES)
-        media = c3.selectbox("媒體", MEDIAS)
+        media = c2.selectbox("媒體", MEDIAS)
+        op_type = c3.selectbox("操作類型", OP_TYPES)
         c4, c5 = st.columns([1, 2])
         campaign = c4.text_input("campaign（選填）")
         note = c5.text_input("備註（選填）")
@@ -284,32 +332,29 @@ def _render_ops():
         st.info("目前沒有操作紀錄。")
         return
 
-    # 清單：摺疊列只顯示乾淨摘要，點開才看完整內容並可編輯/刪除（長備註不再洗版）
+    # 同一天的操作分組成一個區塊：標題＝日期＋當天有動到的媒體
     ops.sort(key=lambda o: (o.get("date", ""), o.get("id", "")), reverse=True)
+    by_date = {}
     for o in ops:
-        camp = o.get("campaign", "")
-        camp_short = (camp[:22] + "…") if len(camp) > 24 else camp
-        header = f"{o.get('date','')}　{o.get('op_type','')}　·　{o.get('media','')}"
-        if camp_short:
-            header += f"　·　`{camp_short}`"  # 反引號避免 campaign 底線被當 markdown 斜體
-        with st.expander(header):
-            with st.form(f"edit_op_{o['id']}"):
-                e1, e2, e3 = st.columns([1, 1.2, 1])
-                ed = e1.date_input("日期", value=_parse_date(o.get("date", "")) or _today())
-                eop = e2.selectbox("操作類型", OP_TYPES,
-                                   index=OP_TYPES.index(o["op_type"]) if o.get("op_type") in OP_TYPES else 0)
-                emedia = e3.selectbox("媒體", MEDIAS,
-                                      index=MEDIAS.index(o["media"]) if o.get("media") in MEDIAS else 0)
-                ecamp = st.text_input("campaign", value=camp)
-                enote = st.text_area("備註", value=o.get("note", ""), height=90)
-                b1, b2 = st.columns(2)
-                if b1.form_submit_button("儲存", type="primary"):
-                    gs.update_op(o["id"], date=ed.isoformat(), op_type=eop, media=emedia,
-                                 campaign=ecamp.strip(), note=enote.strip())
-                    st.rerun()
-                if b2.form_submit_button("🗑 刪除"):
-                    gs.delete_op(o["id"])
-                    st.rerun()
+        by_date.setdefault(o.get("date", ""), []).append(o)
+
+    edit_id = st.session_state.get("_edit_op")
+    for idx, (day, day_ops) in enumerate(by_date.items()):
+        medias = []
+        for o in day_ops:
+            m = o.get("media", "")
+            if m and m not in medias:
+                medias.append(m)
+        header = f"{day}　·　{'、'.join(medias)}" if medias else day
+        day_has_edit = any(o.get("id") == edit_id for o in day_ops)
+        with st.expander(header, expanded=(idx == 0 or day_has_edit)):
+            for i, o in enumerate(day_ops):
+                if i > 0:
+                    st.divider()
+                if o.get("id") == edit_id:
+                    _op_edit_form(o)
+                else:
+                    _op_row(o)
 
 
 def render():
