@@ -1282,52 +1282,6 @@ max_d_date = max_date.date()
 with st.container(border=True):
     st.markdown("**🔧 篩選條件**")
 
-    # 日期範圍:radio 橫式單選,選「自訂」才出日曆
-    date_mode = st.radio(
-        "📅 日期範圍",
-        ["本月", "近7天", "近14天", "昨日", "自訂"],
-        horizontal=True, index=0,
-    )
-
-    if date_mode == "自訂":
-        if "date_picker" not in st.session_state:
-            _ds = max_d_date.replace(day=1)
-            if _ds < min_d_date:
-                _ds = min_d_date
-            st.session_state["date_picker"] = (_ds, max_d_date)
-        date_range = st.date_input(
-            "選擇日期",
-            key="date_picker",
-            min_value=min_d_date,
-            max_value=max_d_date,
-        )
-    else:
-        end = max_d_date
-        if date_mode == "昨日":
-            start = end
-        elif date_mode == "近7天":
-            start = end - timedelta(days=6)
-        elif date_mode == "近14天":
-            start = end - timedelta(days=13)
-        else:  # 本月
-            start = end.replace(day=1)
-        if start < min_d_date:
-            start = min_d_date
-        date_range = (start, end)
-
-    # ── 國家篩選 ──
-    all_country = sorted(df_raw["country"].dropna().unique().tolist())
-    country_choice = st.radio(
-        "🌍 國家", ["全部"] + all_country, horizontal=True, index=0,
-    )
-
-    # ── 媒體篩選 ──
-    all_media = sorted(df_raw["media"].dropna().unique().tolist())
-    media_choice = st.radio(
-        "📱 媒體", ["全部"] + all_media, horizontal=True, index=0,
-    )
-
-    # ── OS 篩選(把雜訊值歸成「其他」)──
     def _norm_os(s):
         s = str(s).strip().upper()
         if s in ("IOS", "I"):
@@ -1337,9 +1291,54 @@ with st.container(border=True):
         return "其他"
 
     df_raw["_os_group"] = df_raw["os"].apply(_norm_os)
-    os_choice = st.radio(
-        "📱 OS", ["全部", "iOS", "Android", "其他"], horizontal=True, index=0,
-    )
+    all_country = sorted(df_raw["country"].dropna().unique().tolist())
+    all_media = sorted(df_raw["media"].dropna().unique().tolist())
+
+    # 2×2 併排：日期｜國家 / 媒體｜OS，省掉四整行的縱向空間
+    _fc1, _fc2 = st.columns(2)
+    with _fc1:
+        date_mode = st.radio(
+            "📅 日期範圍",
+            ["本月", "近7天", "近14天", "昨日", "自訂"],
+            horizontal=True, index=0,
+        )
+        if date_mode == "自訂":
+            if "date_picker" not in st.session_state:
+                _ds = max_d_date.replace(day=1)
+                if _ds < min_d_date:
+                    _ds = min_d_date
+                st.session_state["date_picker"] = (_ds, max_d_date)
+            date_range = st.date_input(
+                "選擇日期", key="date_picker",
+                min_value=min_d_date, max_value=max_d_date,
+            )
+        else:
+            end = max_d_date
+            if date_mode == "昨日":
+                start = end
+            elif date_mode == "近7天":
+                start = end - timedelta(days=6)
+            elif date_mode == "近14天":
+                start = end - timedelta(days=13)
+            else:  # 本月
+                start = end.replace(day=1)
+            if start < min_d_date:
+                start = min_d_date
+            date_range = (start, end)
+    with _fc2:
+        country_choice = st.radio(
+            "🌍 國家", ["全部"] + all_country, horizontal=True, index=0,
+        )
+
+    _fc3, _fc4 = st.columns(2)
+    with _fc3:
+        media_choice = st.radio(
+            "📱 媒體", ["全部"] + all_media, horizontal=True, index=0,
+        )
+    with _fc4:
+        os_choice = st.radio(
+            "📱 OS", ["全部", "iOS", "Android", "其他"], horizontal=True, index=0,
+        )
 
 # 側邊欄狀態區（品牌/導覽下方）：資料狀態 / 對比期 / 資料範圍 / 重新載入
 with st.sidebar:
