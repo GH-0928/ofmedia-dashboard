@@ -18,10 +18,13 @@ WRITE_SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 TAB_EVENTS = "calendar_events"
 TAB_TODOS = "todos"
+TAB_OPS = "ad_ops"
 
 EVENT_COLS = ["id", "title", "cat", "allday", "start", "end", "hours", "note"]
 TODO_COLS = ["id", "text", "priority", "cat", "done", "due", "end", "allday", "hours", "note"]
-TAB_COLS = {TAB_EVENTS: EVENT_COLS, TAB_TODOS: TODO_COLS}
+# 廣告操作：date/media 為對照廣告數據的 join key，op_type 為結構化分類（供統計/AI）
+OPS_COLS = ["id", "date", "op_type", "media", "campaign", "note"]
+TAB_COLS = {TAB_EVENTS: EVENT_COLS, TAB_TODOS: TODO_COLS, TAB_OPS: OPS_COLS}
 
 
 def _sheet_id() -> str:
@@ -170,3 +173,24 @@ def toggle_todo(todo_id, done: bool):
 
 def delete_todo(todo_id):
     _delete_by_id(TAB_TODOS, todo_id)
+
+
+# ──────────────────────────────── 廣告操作 API ────────────────────────────────
+
+def list_ops() -> list[dict]:
+    return _read(TAB_OPS)
+
+
+def add_op(date, op_type, media, campaign="", note=""):
+    rows = _read(TAB_OPS)
+    rows.append({"id": _new_id(), "date": date, "op_type": op_type,
+                 "media": media, "campaign": campaign, "note": note})
+    _write_all(TAB_OPS, rows)
+
+
+def update_op(op_id, **fields):
+    _update_by_id(TAB_OPS, op_id, fields)
+
+
+def delete_op(op_id):
+    _delete_by_id(TAB_OPS, op_id)

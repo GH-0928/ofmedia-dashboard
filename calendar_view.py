@@ -17,6 +17,16 @@ CAT_COLOR = {
 PRIORITIES = ["高", "一般", "低"]
 WEEK_LABELS = ["日", "一", "二", "三", "四", "五", "六"]
 
+# 廣告操作類型（方向分開，利於統計與 AI 分析）
+OP_TYPES = ["加預算", "降預算", "改出價/競價", "新增素材",
+            "關閉素材", "開 campaign", "關 campaign", "其他"]
+# 媒體清單與廣告資料同源（對照用），抓不到就退回固定清單
+try:
+    from data import RAW_TABS
+    MEDIAS = list(RAW_TABS.keys())
+except Exception:
+    MEDIAS = ["Meta", "ASA", "Google", "TikTok", "Applovin", "Moloco"]
+
 # 雲端伺服器時區為 UTC，用台北時區判斷「今天」，否則深夜會差一天。
 TW_TZ = ZoneInfo("Asia/Taipei")
 
@@ -246,9 +256,59 @@ def _render_todos():
             st.rerun()
 
 
+def _render_ops():
+    try:
+        ops = gs.list_ops()
+    except Exception as e:
+        st.error(f"讀取廣告操作失敗：{e}")
+        return
+
+    # 快速輸入：一列搞定，最少必填（日期/類型/媒體），campaign 與備註選填
+    with st.form("add_op_form", clear_on_submit=True):
+        c1, c2, c3 = st.columns([1, 1.2, 1])
+        d = c1.date_input("日期", value=_today())
+        op_type = c2.selectbox("操作類型", OP_TYPES)
+        media = c3.selectbox("媒體", MEDIAS)
+        c4, c5 = st.columns([1, 2])
+        campaign = c4.text_input("campaign（選填）")
+        note = c5.text_input("備註（選填）")
+        if st.form_submit_button("＋ 記一筆", type="primary"):
+            gs.add_op(date=d.isoformat(), op_type=op_type, media=media,
+                      campaign=campaign.strip(), note=note.strip())
+            st.success("已記錄")
+            st.rerun()
+
+    st.divider()
+
+    if not ops:
+        st.info("目前沒有操作紀錄。")
+        return
+
+    ops.sort(key=lambda o: (o.get("date", ""), o.get("id", "")), reverse=True)
+    for o in ops:
+        c0, c1 = st.columns([0.92, 0.08])
+        op_type = html.escape(o.get("op_type", ""))
+        media = html.escape(o.get("media", ""))
+        camp = html.escape(o.get("campaign", ""))
+        note = html.escape(o.get("note", ""))
+        parts = [f"<b>{op_type}</b>", media]
+        if camp:
+            parts.append(camp)
+        line = "　·　".join(parts)
+        c0.markdown(
+            f"<span style='font-size:.72rem;color:#94a3b8'>{o.get('date','')}</span>　{line}"
+            + (f"<br><span style='font-size:.75rem;color:#94a3b8'>{note}</span>" if note else ""),
+            unsafe_allow_html=True)
+        if c1.button("🗑", key=f"delop_{o['id']}"):
+            gs.delete_op(o["id"])
+            st.rerun()
+
+
 def render():
-    sub_cal, sub_todo = st.tabs(["📆 行事曆", "✅ 待辦"])
+    sub_cal, sub_todo, sub_ops = st.tabs(["📆 行事曆", "✅ 待辦", "📋 廣告操作"])
     with sub_cal:
         _render_calendar()
     with sub_todo:
         _render_todos()
+    with sub_ops:
+        _render_ops()
