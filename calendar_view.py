@@ -80,14 +80,14 @@ def _render_calendar():
     cy, cm = st.session_state.cal_ym
 
     n1, n2, n3, _sp, n_title = st.columns([1, 1, 1, 0.5, 5])
-    if n1.button("◀", use_container_width=True):
+    if n1.button("◀", width='stretch'):
         st.session_state.cal_ym = (cy - 1, 12) if cm == 1 else (cy, cm - 1)
         st.rerun()
-    if n2.button("今天", use_container_width=True):
+    if n2.button("今天", width='stretch'):
         st.session_state.cal_ym = (today.year, today.month)
         st.session_state.sel_date = today.isoformat()
         st.rerun()
-    if n3.button("▶", use_container_width=True):
+    if n3.button("▶", width='stretch'):
         st.session_state.cal_ym = (cy + 1, 1) if cm == 12 else (cy, cm + 1)
         st.rerun()
     n_title.markdown(f"### {cy} 年 {cm} 月")
@@ -109,7 +109,7 @@ def _render_calendar():
                 day_evs = by_day.get(iso, [])
                 label = f"● {d.day}" if d == today else f"{d.day}"
                 btn_type = "primary" if d == sel else "secondary"
-                if st.button(label, key=f"day_{iso}", use_container_width=True,
+                if st.button(label, key=f"day_{iso}", width='stretch',
                              type=btn_type, disabled=not in_month):
                     st.session_state.sel_date = iso
                     st.rerun()

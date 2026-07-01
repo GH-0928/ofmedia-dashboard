@@ -323,7 +323,7 @@ def show_daily_trend(df: pd.DataFrame) -> None:
                     anchor="free", position=1.0,
                     tickfont=dict(color="#F87171")),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
 
 def show_media_mix(df: pd.DataFrame) -> None:
@@ -345,7 +345,7 @@ def show_media_mix(df: pd.DataFrame) -> None:
                           paper_bgcolor="rgba(0,0,0,0)",
                           plot_bgcolor="rgba(0,0,0,0)",
                           margin=dict(t=40, b=10))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
     with c2:
         fig2 = px.pie(media_stats, values="installs", names="media",
                       title="安裝分布", color="media",
@@ -356,7 +356,7 @@ def show_media_mix(df: pd.DataFrame) -> None:
                            paper_bgcolor="rgba(0,0,0,0)",
                            plot_bgcolor="rgba(0,0,0,0)",
                            margin=dict(t=40, b=10))
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig2, width='stretch')
 
 
 def show_alerts(df: pd.DataFrame, df_prev: pd.DataFrame = None) -> None:
@@ -441,7 +441,7 @@ def show_media_compare(df: pd.DataFrame) -> None:
     disp["花費($)"] = disp["花費($)"].apply(lambda x: f"${x:,.0f}")
     disp["安裝"] = disp["安裝"].apply(lambda x: f"{int(x):,}")
     disp["花費%"] = disp["花費%"].apply(lambda x: f"{x:.1f}%")
-    st.dataframe(disp, hide_index=True, use_container_width=True)
+    st.dataframe(disp, hide_index=True, width='stretch')
 
     # CPI 排行
     rank = stats[stats["installs"] >= 10].sort_values("CPI($)", ascending=False)
@@ -452,7 +452,7 @@ def show_media_compare(df: pd.DataFrame) -> None:
         fig.update_layout(height=300, showlegend=False, plot_bgcolor="white",
                           margin=dict(t=40, b=10),
                           yaxis={"categoryorder": "total descending"})
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
 
 def show_geo_os(df: pd.DataFrame) -> None:
@@ -497,7 +497,7 @@ def show_geo_os(df: pd.DataFrame) -> None:
     top15["安裝"] = top15["installs"].apply(lambda x: f"{int(x):,}")
     disp = top15[["country", "花費($)", "安裝", "CPI($)", "CPC($)"]]
     disp.columns = ["國家", "花費($)", "安裝", "CPI($)", "CPC($)"]
-    st.dataframe(disp, hide_index=True, use_container_width=True)
+    st.dataframe(disp, hide_index=True, width='stretch')
 
     st.markdown("---")
     st.subheader("🌡️ 國家 × 媒體 CPI 熱力矩陣")
@@ -513,7 +513,7 @@ def show_geo_os(df: pd.DataFrame) -> None:
                         labels=dict(color="CPI ($)"), aspect="auto",
                         text_auto=".2f")
         fig.update_layout(height=400, margin=dict(t=20, b=10))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
         st.caption("綠 = CPI 低(便宜的安裝),紅 = CPI 高;空格代表該組合無安裝")
 
 
@@ -557,7 +557,7 @@ def show_campaign_table(df: pd.DataFrame, media_filter: str = "全部") -> None:
     disp.columns = ["媒體", "Campaign", "花費($)", "安裝", "CPI($)", "CTR(%)", "標註"]
     disp["花費($)"] = disp["花費($)"].apply(lambda x: f"${x:,.0f}")
     disp["安裝"] = disp["安裝"].apply(lambda x: f"{int(x):,}")
-    st.dataframe(disp, hide_index=True, use_container_width=True, height=460)
+    st.dataframe(disp, hide_index=True, width='stretch', height=460)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -701,7 +701,7 @@ def _meta_ad_detail_chart(sub: pd.DataFrame, name: str,
                     anchor="free", position=1.0,
                     tickfont=dict(color=COLOR_CPI)),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
     # ── 輔助診斷:CTR+CVR 合併雙軸 + CPM 單圖(全寬堆疊,X 軸與主圖對齊)──
     st.caption("🔍 輔助診斷指標(X 軸與上圖對齊,可垂直比對某天)")
@@ -749,7 +749,7 @@ def _meta_ad_detail_chart(sub: pd.DataFrame, name: str,
                     overlaying="y", side="right", showgrid=False,
                     rangemode="tozero", tickfont=dict(color="#A78BFA")),
     )
-    st.plotly_chart(funnel, use_container_width=True)
+    st.plotly_chart(funnel, width='stretch')
 
     # CPM 單圖:流量成本 / 競爭強度
     cpm_fig = go.Figure()
@@ -771,7 +771,7 @@ def _meta_ad_detail_chart(sub: pd.DataFrame, name: str,
         yaxis=dict(showgrid=True, gridcolor="#334155",
                    rangemode="tozero", automargin=False),
     )
-    st.plotly_chart(cpm_fig, use_container_width=True)
+    st.plotly_chart(cpm_fig, width='stretch')
 
 
 def _add_cpi_trend_cols(stats: pd.DataFrame, raw_sub: pd.DataFrame,
@@ -886,7 +886,7 @@ def _meta_render_table(stats: pd.DataFrame, key_col: str, label: str, table_key:
     event = st.dataframe(
         disp,
         hide_index=True,
-        use_container_width=True,
+        width='stretch',
         height=460,
         on_select="rerun",
         selection_mode="single-row",
@@ -1044,7 +1044,7 @@ def deep_dive_meta(date_start, date_end, os_choice="全部", country_choice="全
         event = st.dataframe(
             disp,
             hide_index=True,
-            use_container_width=True,
+            width='stretch',
             height=460,
             on_select="rerun",
             selection_mode="single-row",
@@ -1155,7 +1155,7 @@ def deep_dive_asa(date_start, date_end, os_choice="全部", country_choice="全�
         kw["花費($)"] = kw["spend"].apply(lambda x: f"${x:,.0f}")
         kw["安裝"] = kw["installs"].apply(lambda x: f"{int(x):,}")
         st.dataframe(kw[["keyword", "花費($)", "安裝", "CPI($)", "CTR(%)", "CVR(%)"]],
-                     hide_index=True, use_container_width=True, height=460)
+                     hide_index=True, width='stretch', height=460)
 
     st.markdown("---")
     st.subheader("🔎 Search Term 表現 ─ 依花費")
@@ -1170,7 +1170,7 @@ def deep_dive_asa(date_start, date_end, os_choice="全部", country_choice="全�
         st_df["花費($)"] = st_df["spend"].apply(lambda x: f"${x:,.0f}")
         st_df["安裝"] = st_df["installs"].apply(lambda x: f"{int(x):,}")
         st.dataframe(st_df[["search_term", "花費($)", "安裝", "CPI($)"]],
-                     hide_index=True, use_container_width=True)
+                     hide_index=True, width='stretch')
 
 
 def _google_table(df: pd.DataFrame, group_col: str, label: str,
@@ -1216,7 +1216,7 @@ def _google_table(df: pd.DataFrame, group_col: str, label: str,
         subset=["CPI($)"],
         **{"color": "#EF4444", "font-weight": "700"},
     )
-    st.dataframe(styled, hide_index=True, use_container_width=True, height=460)
+    st.dataframe(styled, hide_index=True, width='stretch', height=460)
 
 
 def deep_dive_google(date_start, date_end, os_choice="全部", country_choice="全部") -> None:
@@ -1263,7 +1263,7 @@ if "_main_section" not in st.session_state:
 with st.sidebar:
     st.markdown("### 🎰 Ocean Fishooter")
     for _label, _val in NAV_ITEMS:
-        if st.button(_label, use_container_width=True, key=f"nav_{_val}",
+        if st.button(_label, width='stretch', key=f"nav_{_val}",
                      type="primary" if st.session_state["_main_section"] == _val
                      else "secondary"):
             st.session_state["_main_section"] = _val
@@ -1378,7 +1378,7 @@ with st.sidebar:
         st.caption(f"(同長度 {_len} 天)")
     st.caption(f"資料範圍:{min_date.strftime('%Y-%m-%d')} ~ {max_date.strftime('%Y-%m-%d')}")
     st.caption(f"頁面開啟時間:{datetime.now().strftime('%Y/%m/%d %H:%M')}")
-    if st.button("🔄 重新載入資料", use_container_width=True,
+    if st.button("🔄 重新載入資料", width='stretch',
                  help="清除快取並從 Google Sheet 重新拉資料"):
         st.cache_data.clear()
         st.rerun()
