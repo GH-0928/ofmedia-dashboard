@@ -1253,8 +1253,12 @@ NAV_ITEMS = [
     ("📊 廣告數據", "廣告數據"),
     ("📆 行事曆・待辦", "行事曆待辦"),
 ]
+_VALID_SECTIONS = {v for _, v in NAV_ITEMS}
+# 目前功能同步寫進網址 query param：雲端免費版連線重連 / 使用者重整時 session_state
+# 可能被清空，此時從網址還原，避免「操作後跳回廣告數據」。
 if "_main_section" not in st.session_state:
-    st.session_state["_main_section"] = "廣告數據"
+    _q = st.query_params.get("view")
+    st.session_state["_main_section"] = _q if _q in _VALID_SECTIONS else "廣告數據"
 
 with st.sidebar:
     st.markdown("### 🎰 Ocean Fishooter")
@@ -1263,8 +1267,11 @@ with st.sidebar:
                      type="primary" if st.session_state["_main_section"] == _val
                      else "secondary"):
             st.session_state["_main_section"] = _val
+            st.query_params["view"] = _val
             st.rerun()
 section = st.session_state["_main_section"]
+if st.query_params.get("view") != section:
+    st.query_params["view"] = section
 
 # 行事曆・待辦模式：主畫面只渲染行事曆，st.stop 跳過所有廣告區塊
 if section == "行事曆待辦":
