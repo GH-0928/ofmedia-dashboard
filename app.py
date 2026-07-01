@@ -15,6 +15,8 @@ from auth import require_password
 from data import (load_unified, load_meta_raw, load_asa_raw,
                   load_google_raw, RAW_TABS)
 from calendar_view import render as render_calendar_todo
+import calendar_store
+import html
 
 st.set_page_config(
     page_title="Ocean Fishooter 廣告儀表板",
@@ -326,6 +328,38 @@ def show_daily_trend(df: pd.DataFrame) -> None:
     st.plotly_chart(fig, width='stretch')
 
 
+def show_ops_log(date_range, media_choice: str = "全部") -> None:
+    """條列該期間（＋當前媒體篩選）的廣告操作，對照上方每日趨勢。"""
+    try:
+        ops = calendar_store.list_ops()
+    except Exception as e:
+        st.caption(f"⚠️ 讀取廣告操作失敗：{e}")
+        return
+    if len(date_range) == 2:
+        s, e = date_range[0].isoformat(), date_range[1].isoformat()
+    else:
+        s, e = "0000-00-00", "9999-99-99"
+    rows = [o for o in ops
+            if s <= (o.get("date", "") or "") <= e
+            and (media_choice == "全部" or o.get("media") == media_choice)]
+    if not rows:
+        st.caption("此期間／篩選下沒有廣告操作紀錄。")
+        return
+    rows.sort(key=lambda o: (o.get("date", ""), o.get("id", "")), reverse=True)
+    for o in rows:
+        op = html.escape(o.get("op_type", ""))
+        med = html.escape(o.get("media", ""))
+        camp = html.escape(o.get("campaign", ""))
+        note = html.escape(o.get("note", ""))
+        parts = [f"<b>{op}</b>", med] + ([camp] if camp else [])
+        tail = f"　—　<span style='color:#94A3B8'>{note}</span>" if note else ""
+        st.markdown(
+            f"<div style='font-size:.82rem;margin:3px 0'>"
+            f"<span style='color:#94A3B8'>{o.get('date','')}</span>　"
+            f"{'　·　'.join(parts)}{tail}</div>",
+            unsafe_allow_html=True)
+
+
 def show_media_mix(df: pd.DataFrame) -> None:
     media_stats = df.groupby("media").agg(
         spend=("spend", "sum"),
@@ -341,7 +375,7 @@ def show_media_mix(df: pd.DataFrame) -> None:
                      color_discrete_map=MEDIA_COLORS, hole=0.4)
         fig.update_traces(marker=dict(line=dict(color="#0E1117", width=2)),
                           textfont=dict(color="#0F172A", size=13))
-        fig.update_layout(template="plotly_dark", height=320,
+        fig.update_layout(template="plotly_dark", height=240,
                           paper_bgcolor="rgba(0,0,0,0)",
                           plot_bgcolor="rgba(0,0,0,0)",
                           margin=dict(t=40, b=10))
@@ -352,7 +386,7 @@ def show_media_mix(df: pd.DataFrame) -> None:
                       color_discrete_map=MEDIA_COLORS, hole=0.4)
         fig2.update_traces(marker=dict(line=dict(color="#0E1117", width=2)),
                            textfont=dict(color="#0F172A", size=13))
-        fig2.update_layout(template="plotly_dark", height=320,
+        fig2.update_layout(template="plotly_dark", height=240,
                            paper_bgcolor="rgba(0,0,0,0)",
                            plot_bgcolor="rgba(0,0,0,0)",
                            margin=dict(t=40, b=10))
@@ -1446,6 +1480,9 @@ with tab1:
     st.markdown("---")
     st.subheader("📈 每日趨勢(花費 / 安裝 / CPI)")
     show_daily_trend(df)
+    st.markdown("---")
+    st.subheader("📋 期間內廣告操作")
+    show_ops_log(date_range, media_choice)
     st.markdown("---")
     st.subheader("🥧 媒體分布")
     show_media_mix(df)
