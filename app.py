@@ -1250,12 +1250,17 @@ if df_raw is None or df_raw.empty:
 
 with st.sidebar:
     st.markdown("### 🎰 Ocean Fishooter")
-    section = st.radio(
+    section = st.segmented_control(
         "功能",
         ["📊 廣告數據", "📆 行事曆・待辦"],
+        default="📊 廣告數據",
         label_visibility="collapsed",
         key="_main_section",
     )
+
+# segmented_control 點掉選取會回 None，補回預設避免掉進未定義狀態
+if not section:
+    section = "📊 廣告數據"
 
 # 行事曆・待辦模式：側邊欄不顯示廣告篩選，主畫面只渲染行事曆，st.stop 跳過所有廣告區塊
 if section == "📆 行事曆・待辦":
@@ -1263,7 +1268,7 @@ if section == "📆 行事曆・待辦":
     render_calendar_todo()
     st.stop()
 
-with st.sidebar:
+with st.expander("🔧 篩選條件", expanded=False):
     # 資料新鮮度
     min_date = df_raw["date"].min()
     max_date = df_raw["date"].max()
@@ -1286,7 +1291,6 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-    st.title("篩選條件")
     min_d_date = min_date.date()
     max_d_date = max_date.date()
 
