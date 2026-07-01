@@ -284,24 +284,32 @@ def _render_ops():
         st.info("目前沒有操作紀錄。")
         return
 
+    # 清單：摺疊列只顯示乾淨摘要，點開才看完整內容並可編輯/刪除（長備註不再洗版）
     ops.sort(key=lambda o: (o.get("date", ""), o.get("id", "")), reverse=True)
     for o in ops:
-        c0, c1 = st.columns([0.92, 0.08])
-        op_type = html.escape(o.get("op_type", ""))
-        media = html.escape(o.get("media", ""))
-        camp = html.escape(o.get("campaign", ""))
-        note = html.escape(o.get("note", ""))
-        parts = [f"<b>{op_type}</b>", media]
-        if camp:
-            parts.append(camp)
-        line = "　·　".join(parts)
-        c0.markdown(
-            f"<span style='font-size:.72rem;color:#94a3b8'>{o.get('date','')}</span>　{line}"
-            + (f"<br><span style='font-size:.75rem;color:#94a3b8'>{note}</span>" if note else ""),
-            unsafe_allow_html=True)
-        if c1.button("🗑", key=f"delop_{o['id']}"):
-            gs.delete_op(o["id"])
-            st.rerun()
+        camp = o.get("campaign", "")
+        camp_short = (camp[:22] + "…") if len(camp) > 24 else camp
+        header = f"{o.get('date','')}　{o.get('op_type','')}　·　{o.get('media','')}"
+        if camp_short:
+            header += f"　·　`{camp_short}`"  # 反引號避免 campaign 底線被當 markdown 斜體
+        with st.expander(header):
+            with st.form(f"edit_op_{o['id']}"):
+                e1, e2, e3 = st.columns([1, 1.2, 1])
+                ed = e1.date_input("日期", value=_parse_date(o.get("date", "")) or _today())
+                eop = e2.selectbox("操作類型", OP_TYPES,
+                                   index=OP_TYPES.index(o["op_type"]) if o.get("op_type") in OP_TYPES else 0)
+                emedia = e3.selectbox("媒體", MEDIAS,
+                                      index=MEDIAS.index(o["media"]) if o.get("media") in MEDIAS else 0)
+                ecamp = st.text_input("campaign", value=camp)
+                enote = st.text_area("備註", value=o.get("note", ""), height=90)
+                b1, b2 = st.columns(2)
+                if b1.form_submit_button("儲存", type="primary"):
+                    gs.update_op(o["id"], date=ed.isoformat(), op_type=eop, media=emedia,
+                                 campaign=ecamp.strip(), note=enote.strip())
+                    st.rerun()
+                if b2.form_submit_button("🗑 刪除"):
+                    gs.delete_op(o["id"])
+                    st.rerun()
 
 
 def render():

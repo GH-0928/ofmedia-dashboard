@@ -379,15 +379,20 @@ def show_ops_log(ops: list) -> None:
     if not ops:
         st.caption("此期間／篩選下沒有廣告操作紀錄。")
         return
+    def _clip(s, n):
+        s = s or ""
+        return (s[:n] + "…") if len(s) > n else s
+
     for o in ops:
         op = html.escape(o.get("op_type", ""))
         med = html.escape(o.get("media", ""))
-        camp = html.escape(o.get("campaign", ""))
-        note = html.escape(o.get("note", ""))
+        camp = html.escape(_clip(o.get("campaign", ""), 30))
+        note = html.escape(_clip(o.get("note", ""), 60))  # 長備註截斷，詳細看「廣告操作」分頁
         parts = [f"<b>{op}</b>", med] + ([camp] if camp else [])
         tail = f"　—　<span style='color:#94A3B8'>{note}</span>" if note else ""
         st.markdown(
-            f"<div style='font-size:.82rem;margin:3px 0'>"
+            f"<div style='font-size:.82rem;margin:3px 0;white-space:nowrap;"
+            f"overflow:hidden;text-overflow:ellipsis'>"
             f"<span style='color:#94A3B8'>{o.get('date','')}</span>　"
             f"{'　·　'.join(parts)}{tail}</div>",
             unsafe_allow_html=True)
