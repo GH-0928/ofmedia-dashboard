@@ -1248,53 +1248,41 @@ if df_raw is None or df_raw.empty:
     st.error("無法載入資料,請檢查 Google Sheet 連線設定。")
     st.stop()
 
+# 側邊欄主導覽：垂直排列的按鈕（新增功能往 NAV_ITEMS 加一項即可，自動往下堆疊）
+NAV_ITEMS = [
+    ("📊 廣告數據", "廣告數據"),
+    ("📆 行事曆・待辦", "行事曆待辦"),
+]
+if "_main_section" not in st.session_state:
+    st.session_state["_main_section"] = "廣告數據"
+
 with st.sidebar:
     st.markdown("### 🎰 Ocean Fishooter")
-    section = st.segmented_control(
-        "功能",
-        ["📊 廣告數據", "📆 行事曆・待辦"],
-        default="📊 廣告數據",
-        label_visibility="collapsed",
-        key="_main_section",
-    )
+    for _label, _val in NAV_ITEMS:
+        if st.button(_label, use_container_width=True, key=f"nav_{_val}",
+                     type="primary" if st.session_state["_main_section"] == _val
+                     else "secondary"):
+            st.session_state["_main_section"] = _val
+            st.rerun()
+section = st.session_state["_main_section"]
 
-# segmented_control 點掉選取會回 None，補回預設避免掉進未定義狀態
-if not section:
-    section = "📊 廣告數據"
-
-# 行事曆・待辦模式：側邊欄不顯示廣告篩選，主畫面只渲染行事曆，st.stop 跳過所有廣告區塊
-if section == "📆 行事曆・待辦":
+# 行事曆・待辦模式：主畫面只渲染行事曆，st.stop 跳過所有廣告區塊
+if section == "行事曆待辦":
     st.markdown("## 📆 行事曆 / 待辦")
     render_calendar_todo()
     st.stop()
 
-with st.expander("🔧 篩選條件", expanded=False):
-    # 資料新鮮度
-    min_date = df_raw["date"].min()
-    max_date = df_raw["date"].max()
-    days_behind = (datetime.now().date() - max_date.date()).days
-    if days_behind <= 1:
-        icon, txt, bg, border = "🟢", "正常", "#0F3A1F", "#16A34A"
-    elif days_behind <= 3:
-        icon, txt, bg, border = "🟡", "稍舊", "#3F2A0E", "#D97706"
-    else:
-        icon, txt, bg, border = "🔴", "過期", "#3F1212", "#DC2626"
-    st.markdown(
-        f"""<div style="background:{bg};padding:10px 12px;border-radius:8px;
-        border-left:3px solid {border};margin-bottom:14px">
-        <div style="font-size:11.5px;color:#94A3B8;margin-bottom:2px">資料狀態</div>
-        <div style="font-size:14px;font-weight:600;color:#F8FAFC">
-        📅 最新:{max_date.strftime('%Y-%m-%d')}</div>
-        <div style="font-size:12px;color:#CBD5E1;margin-top:2px">
-        {icon} 距今 {days_behind} 天({txt})</div>
-        </div>""",
-        unsafe_allow_html=True,
-    )
+# 資料新鮮度（側邊欄狀態卡 + 篩選日期上下界共用）
+min_date = df_raw["date"].min()
+max_date = df_raw["date"].max()
+min_d_date = min_date.date()
+max_d_date = max_date.date()
 
-    min_d_date = min_date.date()
-    max_d_date = max_date.date()
+# 篩選條件：常駐在頁面頂端的容器（不用展開/收合）
+with st.container(border=True):
+    st.markdown("**🔧 篩選條件**")
 
-    # 日期範圍:radio 橫式單選(與 OS / 國家 / 媒體 一致),選「自訂」才出日曆
+    # 日期範圍:radio 橫式單選,選「自訂」才出日曆
     date_mode = st.radio(
         "📅 日期範圍",
         ["本月", "近7天", "近14天", "昨日", "自訂"],
@@ -1353,7 +1341,26 @@ with st.expander("🔧 篩選條件", expanded=False):
         "📱 OS", ["全部", "iOS", "Android", "其他"], horizontal=True, index=0,
     )
 
-    st.markdown("---")
+# 側邊欄狀態區（品牌/導覽下方）：資料狀態 / 對比期 / 資料範圍 / 重新載入
+with st.sidebar:
+    days_behind = (datetime.now().date() - max_date.date()).days
+    if days_behind <= 1:
+        icon, txt, bg, border = "🟢", "正常", "#0F3A1F", "#16A34A"
+    elif days_behind <= 3:
+        icon, txt, bg, border = "🟡", "稍舊", "#3F2A0E", "#D97706"
+    else:
+        icon, txt, bg, border = "🔴", "過期", "#3F1212", "#DC2626"
+    st.markdown(
+        f"""<div style="background:{bg};padding:10px 12px;border-radius:8px;
+        border-left:3px solid {border};margin:6px 0 12px">
+        <div style="font-size:11.5px;color:#94A3B8;margin-bottom:2px">資料狀態</div>
+        <div style="font-size:14px;font-weight:600;color:#F8FAFC">
+        📅 最新:{max_date.strftime('%Y-%m-%d')}</div>
+        <div style="font-size:12px;color:#CBD5E1;margin-top:2px">
+        {icon} 距今 {days_behind} 天({txt})</div>
+        </div>""",
+        unsafe_allow_html=True,
+    )
     if len(date_range) == 2:
         _len = (date_range[1] - date_range[0]).days + 1
         _prev_end = date_range[0] - pd.Timedelta(days=1)
@@ -1363,10 +1370,10 @@ with st.expander("🔧 篩選條件", expanded=False):
             f"{_prev_end.strftime('%Y-%m-%d')}"
         )
         st.caption(f"(同長度 {_len} 天)")
-    st.markdown("---")
     st.caption(f"資料範圍:{min_date.strftime('%Y-%m-%d')} ~ {max_date.strftime('%Y-%m-%d')}")
     st.caption(f"頁面開啟時間:{datetime.now().strftime('%Y/%m/%d %H:%M')}")
-    if st.button("🔄 重新載入資料", help="清除快取並從 Google Sheet 重新拉資料"):
+    if st.button("🔄 重新載入資料", use_container_width=True,
+                 help="清除快取並從 Google Sheet 重新拉資料"):
         st.cache_data.clear()
         st.rerun()
 
