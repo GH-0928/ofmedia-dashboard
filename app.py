@@ -1250,7 +1250,20 @@ if df_raw is None or df_raw.empty:
 
 with st.sidebar:
     st.markdown("### 🎰 Ocean Fishooter")
+    section = st.radio(
+        "功能",
+        ["📊 廣告數據", "📆 行事曆・待辦"],
+        label_visibility="collapsed",
+        key="_main_section",
+    )
 
+# 行事曆・待辦模式：側邊欄不顯示廣告篩選，主畫面只渲染行事曆，st.stop 跳過所有廣告區塊
+if section == "📆 行事曆・待辦":
+    st.markdown("## 📆 行事曆 / 待辦")
+    render_calendar_todo()
+    st.stop()
+
+with st.sidebar:
     # 資料新鮮度
     min_date = df_raw["date"].min()
     max_date = df_raw["date"].max()
@@ -1406,10 +1419,9 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-tab1, tab2, tab3 = st.tabs([
+tab1, tab2 = st.tabs([
     "🎯 投放總覽",
     "🔍 媒體深度",
-    "📆 行事曆 / 待辦",
 ])
 
 with tab1:
@@ -1451,6 +1463,3 @@ with tab2:
                 st.markdown("---")
                 deep_dive_google(date_range[0], date_range[1], os_choice, country_choice)
         # TikTok / Applovin / Moloco 沒有獨家欄位,只看 campaign
-
-with tab3:
-    render_calendar_todo()
