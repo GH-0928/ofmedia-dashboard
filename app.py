@@ -280,7 +280,7 @@ def show_kpis(df: pd.DataFrame, df_prev: pd.DataFrame = None) -> None:
 # ──────────────────────────────────────────────────────────────────────
 #  圖表
 # ──────────────────────────────────────────────────────────────────────
-def show_daily_trend(df: pd.DataFrame) -> None:
+def show_daily_trend(df: pd.DataFrame, ops: list = None) -> None:
     daily = df.groupby("date").agg(
         spend=("spend", "sum"),
         installs=("installs", "sum"),
@@ -306,6 +306,35 @@ def show_daily_trend(df: pd.DataFrame) -> None:
         marker=dict(size=6), yaxis="y3",
         hovertemplate="💎 $%{y:.2f}<extra></extra>",
     ))
+    # 操作標記：同日多筆合併，▲ 放在圖表頂端，hover 顯示操作內容
+    if ops and not daily.empty:
+        from collections import defaultdict
+        by_date = defaultdict(list)
+        for o in ops:
+            if o.get("date"):
+                by_date[o["date"]].append(o)
+        mk_x, mk_hover = [], []
+        for d in sorted(by_date):
+            segs = []
+            for o in by_date[d]:
+                seg = o.get("op_type", "")
+                if o.get("media"):
+                    seg += f"·{o['media']}"
+                if o.get("campaign"):
+                    seg += f"·{o['campaign']}"
+                if o.get("note"):
+                    seg += f"（{o['note']}）"
+                segs.append(seg)
+            mk_x.append(pd.to_datetime(d))
+            mk_hover.append("<br>".join(segs))
+        top = float(daily["spend"].max()) * 1.08
+        fig.add_trace(go.Scatter(
+            x=mk_x, y=[top] * len(mk_x), mode="markers", name="🔧 操作",
+            marker=dict(symbol="triangle-up", size=13, color="#FBBF24",
+                        line=dict(color="#0E1117", width=1)),
+            yaxis="y1", hovertext=mk_hover,
+            hovertemplate="🔧 %{hovertext}<extra></extra>",
+        ))
     fig.update_layout(
         template="plotly_dark",
         plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
@@ -328,13 +357,12 @@ def show_daily_trend(df: pd.DataFrame) -> None:
     st.plotly_chart(fig, width='stretch')
 
 
-def show_ops_log(date_range, media_choice: str = "全部") -> None:
-    """條列該期間（＋當前媒體篩選）的廣告操作，對照上方每日趨勢。"""
+def get_filtered_ops(date_range, media_choice: str = "全部") -> list:
+    """取該期間＋媒體篩選下的廣告操作（日期新到舊）。供趨勢圖標記與清單共用。"""
     try:
         ops = calendar_store.list_ops()
-    except Exception as e:
-        st.caption(f"⚠️ 讀取廣告操作失敗：{e}")
-        return
+    except Exception:
+        return []
     if len(date_range) == 2:
         s, e = date_range[0].isoformat(), date_range[1].isoformat()
     else:
@@ -342,11 +370,16 @@ def show_ops_log(date_range, media_choice: str = "全部") -> None:
     rows = [o for o in ops
             if s <= (o.get("date", "") or "") <= e
             and (media_choice == "全部" or o.get("media") == media_choice)]
-    if not rows:
+    rows.sort(key=lambda o: (o.get("date", ""), o.get("id", "")), reverse=True)
+    return rows
+
+
+def show_ops_log(ops: list) -> None:
+    """條列廣告操作，對照上方每日趨勢。"""
+    if not ops:
         st.caption("此期間／篩選下沒有廣告操作紀錄。")
         return
-    rows.sort(key=lambda o: (o.get("date", ""), o.get("id", "")), reverse=True)
-    for o in rows:
+    for o in ops:
         op = html.escape(o.get("op_type", ""))
         med = html.escape(o.get("media", ""))
         camp = html.escape(o.get("campaign", ""))
@@ -1479,10 +1512,11 @@ with tab1:
     show_kpis(df, df_prev)
     st.markdown("---")
     st.subheader("📈 每日趨勢(花費 / 安裝 / CPI)")
-    show_daily_trend(df)
+    _ops = get_filtered_ops(date_range, media_choice)
+    show_daily_trend(df, _ops)
     st.markdown("---")
     st.subheader("📋 期間內廣告操作")
-    show_ops_log(date_range, media_choice)
+    show_ops_log(_ops)
     st.markdown("---")
     st.subheader("🥧 媒體分布")
     show_media_mix(df)
