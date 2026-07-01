@@ -1,5 +1,9 @@
-streamlit>=1.40
-pandas>=2.0
+# 鎖定版本：雲端不鎖版時會抓到不相容的 numpy/pyarrow 組合，
+# 觸發原生層 "double free or corruption" 崩潰。以下為本機驗證可正常運作的組合。
+streamlit==1.55.0
+pandas==2.3.3
+numpy==2.4.3
+pyarrow==23.0.1
 plotly>=5.18
 google-api-python-client>=2.100
 google-auth>=2.23
