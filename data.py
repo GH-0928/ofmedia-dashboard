@@ -4,12 +4,16 @@
 讀 6 個 _raw 分頁(ASA / Meta / Google / TikTok / Applovin / Moloco),
 統合成共通欄位的 DataFrame 給 dashboard 用。
 """
+import socket
+import ssl
+import time
 from typing import Optional
 
 import pandas as pd
 import streamlit as st
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
 SHEET_ID = "1s9jcoN4wVcKb2aOTAoIUe3Gw-EjbOomnNfvPzA3sJ6o"
 
@@ -91,20 +95,44 @@ def _sheets_service():
     return build("sheets", "v4", credentials=_get_credentials(), cache_discovery=False)
 
 
+# service 物件底下綁著 httplib2 的長連線 socket。雲端 app 閒置一段時間後
+# Google 那端會把連線關掉,再用同一個 service 就噴 [Errno 32] Broken pipe。
+# 因此讀取失敗時要「丟掉快取的 service、重建連線」再重試,不能只重呼叫一次。
+_MAX_RETRY = 3
+
+
+def _is_retryable(e: Exception) -> bool:
+    """判斷是不是「重試就會好」的連線層/暫時性錯誤(非權限或分頁不存在)。"""
+    if isinstance(e, HttpError):
+        status = getattr(getattr(e, "resp", None), "status", None)
+        return status in (429, 500, 502, 503, 504)
+    # BrokenPipeError / ConnectionReset / socket.timeout / ssl 錯誤都屬 OSError 家族
+    return isinstance(e, (OSError, ssl.SSLError, socket.timeout, TimeoutError))
+
+
 def _read_tab(tab: str, rng: str) -> pd.DataFrame:
-    svc = _sheets_service()
-    result = svc.spreadsheets().values().get(
-        spreadsheetId=SHEET_ID,
-        range=f"{tab}!{rng}",
-        valueRenderOption="UNFORMATTED_VALUE",
-        dateTimeRenderOption="FORMATTED_STRING",
-    ).execute()
-    values = result.get("values", [])
-    if not values:
-        return pd.DataFrame()
-    header, rows = values[0], values[1:]
-    df = pd.DataFrame(rows, columns=header)
-    return df
+    last_err: Optional[Exception] = None
+    for attempt in range(_MAX_RETRY):
+        try:
+            svc = _sheets_service()
+            result = svc.spreadsheets().values().get(
+                spreadsheetId=SHEET_ID,
+                range=f"{tab}!{rng}",
+                valueRenderOption="UNFORMATTED_VALUE",
+                dateTimeRenderOption="FORMATTED_STRING",
+            ).execute()
+            values = result.get("values", [])
+            if not values:
+                return pd.DataFrame()
+            header, rows = values[0], values[1:]
+            return pd.DataFrame(rows, columns=header)
+        except Exception as e:  # noqa: BLE001 - 需分類後決定重試或往外拋
+            if not _is_retryable(e) or attempt == _MAX_RETRY - 1:
+                raise
+            last_err = e
+            _sheets_service.clear()      # 關鍵:清掉壞掉的連線,下輪重建
+            time.sleep(0.6 * (attempt + 1))
+    raise last_err  # pragma: no cover - 迴圈內必定 return 或 raise
 
 
 def _normalize(df: pd.DataFrame, mapping: dict, media_name: str) -> pd.DataFrame:
@@ -134,18 +162,26 @@ def _normalize(df: pd.DataFrame, mapping: dict, media_name: str) -> pd.DataFrame
 
 @st.cache_data(ttl=600)
 def load_unified() -> pd.DataFrame:
-    """讀全部 6 個 _raw,清成共通欄位後合併。"""
-    frames = []
+    """讀全部 6 個 _raw,清成共通欄位後合併。
+
+    某個分頁讀失敗時不會整個中斷,但會把「缺了哪幾家媒體」記在
+    df.attrs["failed_tabs"],由 app.py 在畫面上明確示警 ──
+    否則畫面會拿「少一家媒體」的數字照常算 KPI,看起來正常但會誤導決策。
+    """
+    frames, failed = [], []
     for media, spec in RAW_TABS.items():
         try:
             raw = _read_tab(spec["tab"], spec["range"])
             cleaned = _normalize(raw, spec["common"], media_name=media)
             frames.append(cleaned)
-        except Exception as e:
-            st.warning(f"讀 {spec['tab']} 失敗:{e}")
+        except Exception as e:  # noqa: BLE001 - 單一分頁失敗不該拖垮整頁
+            failed.append((media, spec["tab"], str(e)))
     if not frames:
-        return pd.DataFrame()
-    return pd.concat(frames, ignore_index=True)
+        out = pd.DataFrame()
+    else:
+        out = pd.concat(frames, ignore_index=True)
+    out.attrs["failed_tabs"] = failed
+    return out
 
 
 @st.cache_data(ttl=600)

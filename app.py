@@ -1316,9 +1316,21 @@ def deep_dive_google(date_start, date_end, os_choice="全部", country_choice="�
 #  主程式
 # ──────────────────────────────────────────────────────────────────────
 df_raw = load_unified()
+_failed_tabs = list(getattr(df_raw, "attrs", {}).get("failed_tabs", []))
 if df_raw is None or df_raw.empty:
     st.error("無法載入資料,請檢查 Google Sheet 連線設定。")
+    if _failed_tabs:
+        st.caption("失敗明細:" + "；".join(f"{t}({e})" for _m, t, e in _failed_tabs))
     st.stop()
+# 少讀到某家媒體時要講清楚:此時下面所有 KPI 都不含那家的花費/安裝,
+# 靜靜跳過會讓人拿殘缺數字做決策。
+if _failed_tabs:
+    _miss = "、".join(m for m, _t, _e in _failed_tabs)
+    st.error(
+        f"⚠️ **資料不完整:{_miss} 讀取失敗** ─ 以下所有數字都不含這些媒體，"
+        f"請點左側「🔄 重新載入資料」重試。\n\n"
+        + "\n".join(f"- `{t}`:{e}" for _m, t, e in _failed_tabs)
+    )
 
 # 側邊欄主導覽：垂直排列的按鈕（新增功能往 NAV_ITEMS 加一項即可，自動往下堆疊）
 NAV_ITEMS = [
