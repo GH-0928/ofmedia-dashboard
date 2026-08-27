@@ -32,7 +32,14 @@ _GLOBAL_CSS = """
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden; height: 0;}
 header[data-testid="stHeader"] {background: transparent; height: 0;}
-[data-testid="stToolbar"] {display: none;}
+/* 注意:不要整個藏 [data-testid="stToolbar"]。Streamlit 1.55 把「展開
+   sidebar」的按鈕(stExpandSidebarButton)也塞在 toolbar 裡,整個 display:none
+   會讓它變成 0x0 —— sidebar 一旦被收合就再也打不開,而收合狀態還會被記在
+   瀏覽器 localStorage(stSidebarCollapsed-<網址>),跨分頁、跨天都記得,
+   initial_sidebar_state="expanded" 也蓋不掉。只藏 Deploy 與主選單那組。 */
+[data-testid="stToolbarActions"] {display: none;}
+[data-testid="stAppDeployButton"] {display: none;}
+[data-testid="stMainMenu"] {display: none;}
 [data-testid="stDecoration"] {display: none;}
 [data-testid="stStatusWidget"] {display: none;}
 
