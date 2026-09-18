@@ -1,9 +1,12 @@
+# 主題色與 theme.py 的 token 必須一致：這裡設定的是 Streamlit 原生元件
+# （表格表頭、輸入框、sidebar）的底色，theme.py 管的是自訂卡片與圖表。
+# 兩邊不同步就會出現「卡片與表格不同色系」的拼裝感。
 [theme]
 base = "dark"
 primaryColor = "#3B82F6"
 backgroundColor = "#0E1117"
-secondaryBackgroundColor = "#1E293B"
-textColor = "#F1F5F9"
+secondaryBackgroundColor = "#1A2230"
+textColor = "#E6EDF7"
 font = "sans serif"
 
 [server]

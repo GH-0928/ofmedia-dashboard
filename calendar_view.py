@@ -7,12 +7,14 @@ from zoneinfo import ZoneInfo
 
 import streamlit as st
 
+import theme
+
 import calendar_store as gs
 
 CATS = ["工作", "會議", "廣告", "素材", "其他"]
 CAT_COLOR = {
-    "工作": "#3b82f6", "會議": "#8b5cf6", "廣告": "#ef4444",
-    "素材": "#f59e0b", "其他": "#6b7280",
+    "工作": theme.ACCENT, "會議": theme.CVR_C, "廣告": theme.NEG,
+    "素材": theme.WARN, "其他": theme.TEXT_DIM,
 }
 PRIORITIES = ["高", "一般", "低"]
 WEEK_LABELS = ["日", "一", "二", "三", "四", "五", "六"]
@@ -94,7 +96,7 @@ def _render_calendar():
     hcols = st.columns(7)
     for i, lab in enumerate(WEEK_LABELS):
         hcols[i].markdown(
-            f"<div style='text-align:center;font-weight:700;color:#94a3b8;'>{lab}</div>",
+            f"<div style='text-align:center;font-weight:700;color:{theme.TEXT_MID};'>{lab}</div>",
             unsafe_allow_html=True)
 
     weeks = pycal.Calendar(firstweekday=6).monthdatescalendar(cy, cm)
@@ -113,7 +115,7 @@ def _render_calendar():
                     st.session_state.sel_date = iso
                     st.rerun()
                 for ev in day_evs[:3]:
-                    color = CAT_COLOR.get(ev.get("cat", ""), "#3b82f6")
+                    color = CAT_COLOR.get(ev.get("cat", ""), theme.ACCENT)
                     title = html.escape((ev.get("title", "") or "")[:8])
                     st.markdown(
                         f"<div style='font-size:.62rem;line-height:1.3;color:{color};"
@@ -121,7 +123,7 @@ def _render_calendar():
                         f"●{title}</div>", unsafe_allow_html=True)
                 if len(day_evs) > 3:
                     st.markdown(
-                        f"<div style='font-size:.6rem;color:#94a3b8;'>+{len(day_evs)-3}</div>",
+                        f"<div style='font-size:.6rem;color:{theme.TEXT_MID};'>+{len(day_evs)-3}</div>",
                         unsafe_allow_html=True)
 
     st.divider()
@@ -233,7 +235,7 @@ def _render_todos():
         if checked != done:
             gs.toggle_todo(t["id"], checked)
             st.rerun()
-        dot = CAT_COLOR.get(t.get("cat", ""), "#6b7280")
+        dot = CAT_COLOR.get(t.get("cat", ""), theme.TEXT_DIM)
         label = html.escape(t.get("text", ""))
         meta = []
         if t.get("priority"):
@@ -243,12 +245,13 @@ def _render_todos():
         if t.get("cat"):
             meta.append(t["cat"])
         meta_str = html.escape("　·　".join(meta))
-        style = "color:#64748b;text-decoration:line-through;" if done else ""
+        style = (f"color:{theme.TEXT_DIM};text-decoration:line-through;"
+             if done else "")
         c1.markdown(
             f"<span style='display:inline-block;width:8px;height:8px;border-radius:50%;"
             f"background:{dot};margin-right:6px;'></span>"
             f"<span style='{style}'>{label}</span>"
-            f"<br><span style='font-size:.75rem;color:#94a3b8;{style}'>{meta_str}</span>",
+            f"<br><span style='font-size:.75rem;color:{theme.TEXT_MID};{style}'>{meta_str}</span>",
             unsafe_allow_html=True)
         if c2.button("🗑", key=f"del_{t['id']}"):
             gs.delete_todo(t["id"])
@@ -265,7 +268,7 @@ def _op_row(o):
     if camp_short:
         label += f"　·　<code>{html.escape(camp_short)}</code>"
     if note_short:
-        label += (f"<br><span style='color:#94a3b8;font-size:.76rem'>"
+        label += (f"<br><span style='color:{theme.TEXT_MID};font-size:.76rem'>"
                   f"{html.escape(note_short)}</span>")
     c0, c1, c2 = st.columns([0.84, 0.08, 0.08])
     c0.markdown(f"<div style='font-size:.85rem'>{label}</div>", unsafe_allow_html=True)
