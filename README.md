@@ -39,6 +39,18 @@ Ocean Fishooter UA 投放儀表板，以 6 個媒體（Meta / ASA / Google / Tik
 | `auth.py` | 密碼登入閘 |
 | `calendar_view.py` / `calendar_store.py` | 行事曆・待辦 |
 | `.streamlit/config.toml` | Streamlit 原生元件的主題色 |
+| `dev/` | 開發工具：離線煙霧測試與假資料預覽（不需要憑證與密碼，見 `dev/README.md`）|
+
+## 開發流程
+
+改完 UI 照這個順序驗：
+
+```bash
+python dev/smoke_test.py                                   # 23 個情境跑一遍，抓例外
+streamlit run dev/preview_app.py --server.port 8599        # 假資料預覽，看版面與互動
+```
+
+兩支都不需要 Google Sheet 憑證與登入密碼。細節見 `dev/README.md`。
 
 ## 維護須知
 
