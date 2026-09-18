@@ -780,7 +780,9 @@ def _level_columns(group_col: str, label: str, has_status: bool) -> list:
         grid.col("cpi_yday", "昨日", "cost", width=88, help="最新一天的 CPI"),
         grid.col("cpi_7d", "7 日", "cost", width=88,
                  help="最近 7 天累積花費 / 累積安裝"),
-        grid.col("spark", "14 天走勢", "spark", width=100),
+        # 區塊字元一格約 8px，14 天要 150 才不會被截成 "..."
+        grid.col("spark", "CPI 走勢", "spark", width=150,
+                 help="最近 14 天每日 CPI，一格一天；沒有安裝的那天記為 0"),
         grid.col("ctr", "CTR", "pct", width=84),
         grid.col("cvr", "CVR", "pct", width=84),
         grid.col("cpm", "CPM", "cost", width=90),

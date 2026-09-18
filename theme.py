@@ -170,6 +170,7 @@ h1 {{font-weight: 700 !important;}}
 .of-kpi-label {{
     font-size: {FS_LABEL}; font-weight: 600; color: {TEXT_MID};
     letter-spacing: .3px; margin-bottom: 3px;
+    white-space: nowrap;   /* 不加會在窄卡片裡被拆成直排，把數值擠不見 */
 }}
 .of-kpi-value {{
     font-size: {FS_VALUE}; font-weight: 700; color: {TEXT};
@@ -180,8 +181,16 @@ h1 {{font-weight: 700 !important;}}
     font-size: {FS_LABEL}; margin-top: 4px; font-weight: 600;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }}
-/* 視窗再窄下去，四張卡各自不到 260px，這時走勢線讓位給數字 */
-@media (max-width: 1150px) {{
+/* 窄視窗：四張卡並排會各自不到 160px，數字直接被截掉。改成兩欄四列，
+   每張卡拿回足夠寬度（Streamlit 的 columns 本身不會換行，靠 flex-wrap）。 */
+@media (max-width: 1250px) {{
+    [data-testid="stHorizontalBlock"]:has(.of-kpi) {{flex-wrap: wrap;}}
+    [data-testid="stHorizontalBlock"]:has(.of-kpi) > div {{
+        flex: 1 1 44% !important; min-width: 44% !important;
+    }}
+}}
+/* 再窄就連兩欄也放不下走勢線，讓位給數字 */
+@media (max-width: 820px) {{
     .of-kpi svg {{display: none;}}
 }}
 .of-kpi-flat {{color: {TEXT_DIM}; font-weight: 500;}}
