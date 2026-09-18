@@ -392,24 +392,30 @@ def fmt_compact(n: float) -> str:
     return f"{n:,.0f}"
 
 
-_BLOCKS = "▁▂▃▄▅▆▇█"
+def spark_css(values: list, color: str = ACCENT_HI, bars: int = 14) -> str:
+    """把數列畫成迷你長條，回傳一串 CSS background（多重 linear-gradient）。
 
-
-def spark_text(values: list, width: int = 14) -> str:
-    """用區塊字元畫走勢（▁▂▄▆█），給表格儲存格用。
-
-    表格裡不能用 SVG：AgGrid 的 React 版本要求 cellRenderer 回傳 React
-    元素，塞 DOM 節點會整個元件爆掉（React error #31）。區塊字元是純文字，
-    不需要 renderer，等寬字型下高低一目了然。
+    表格儲存格不能用 SVG（AgGrid 的 React 版本不收 DOM 節點），也不能用
+    區塊字元（▁▂▄▆█ 在不同字型下寬度不一，含高格的那列會變寬被截斷）。
+    純 CSS 漸層兩個問題都沒有：每根柱子是一個 gradient，寬高都由百分比
+    控制，字型換了也不會跑掉。
     """
-    if not values:
+    vals = [float(v or 0) for v in values][-bars:]
+    if len(vals) < 2:
         return ""
-    vals = [float(v or 0) for v in values][-width:]
     lo, hi = min(vals), max(vals)
-    if hi <= lo:
-        return _BLOCKS[0] * len(vals)
-    step = (hi - lo) / (len(_BLOCKS) - 1)
-    return "".join(_BLOCKS[int((v - lo) / step)] for v in vals)
+    rng = (hi - lo) or 1
+    n = len(vals)
+    width = 100 / (n * 1.55)          # 柱寬（百分比），其餘留給間隔
+    layers = []
+    for idx, v in enumerate(vals):
+        # 最低也留 10% 高度，否則沒安裝的那天會整根消失，看不出有這一天
+        h = 10 + (v - lo) / rng * 78
+        x = idx / (n - 1) * 100
+        layers.append(
+            f"linear-gradient(to top,{color} {h:.0f}%,rgba(0,0,0,0) {h:.0f}%) "
+            f"{x:.2f}% 100%/{width:.2f}% 100% no-repeat")
+    return ",".join(layers)
 
 
 def kpi_card(label: str, value: str, delta_pct: float | None = None,

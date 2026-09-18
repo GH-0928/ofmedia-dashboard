@@ -45,7 +45,7 @@ Ocean Fishooter UA 投放儀表板，以 6 個媒體（Meta / ASA / Google / Tik
 - **改外觀先看 `theme.py`。** `app.py` 裡不寫 hex 色碼，一律引用 token；`config.toml` 的主題色要跟 `theme.py` 同步，否則原生元件（表格、輸入框）會和自訂卡片不同色系。
 - **表格一律走 `grid.data_grid()`，不要用 `st.dataframe`**。`st.dataframe` 的選取 UI 固定是列首那個小圓圈，點名稱不會有反應；AgGrid 才能點整列。
 - **表格欄位保留數值型別**，顯示格式交給 `grid.col(..., "money" / "cost" / "pct")` 在瀏覽器端處理。若先把數字轉成 `"$1,234"` 字串，點欄位排序會變成字典序。
-- **AgGrid 的 cellRenderer 不能回傳 DOM 節點**（React error #31，整個元件會掛掉）。要畫東西就用 `cellStyle`（占比長條用 CSS 漸層）或在 Python 端轉成文字（走勢用區塊字元 `theme.spark_text()`）。
+- **AgGrid 的 cellRenderer 不能回傳 DOM 節點**（React error #31，整個元件會掛掉）。要畫東西就用 `cellStyle`（占比長條用 CSS 漸層）或在 Python 端轉成 CSS（表格裡的走勢長條是多重 linear-gradient，見 `theme.spark_css()`）。
 - **`data_return_mode` 不能設 `MINIMAL`** —— 那會連 `selected_rows` 一起省掉，表格看起來選中了，Python 端卻永遠收到空的。
 - **每個欄位都要有 minWidth**，否則側欄展開或視窗變窄時欄位會被壓成兩三個字寬。
 - **全域 CSS 不要整個藏 `[data-testid="stToolbar"]`**：展開 sidebar 的按鈕在裡面，藏掉之後 sidebar 一收合就再也打不開，而收合狀態還會被 localStorage 記住。

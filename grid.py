@@ -39,10 +39,13 @@ _BAR_STYLE_JS = JsCode(
     "+v+'%, transparent '+v+'%)'};}"
 )
 
-# 走勢欄：值在 Python 端就轉成區塊字元字串（見 theme.spark_text），
-# 這裡只調字距與顏色。
-_SPARK_STYLE = {"letter-spacing": "-1px", "color": theme.ACCENT_HI,
-                "font-size": "15px"}
+# 走勢欄：值在 Python 端轉成一串 CSS background（見 theme.spark_css），
+# 這裡把它套到儲存格背景，文字本身隱藏。
+_SPARK_STYLE_JS = JsCode(
+    "function(p){return p.value?{background:p.value,"
+    "backgroundOrigin:'content-box',backgroundClip:'content-box'}:null;}"
+)
+_SPARK_HIDE_TEXT = JsCode("function(p){return '';}")
 
 def col(field: str, label: str, fmt: str = "text", *, width: int | None = None,
         flex: int | None = None, help: str | None = None,
@@ -91,11 +94,11 @@ def data_grid(df: pd.DataFrame, cols: list, key: str, *,
     fields = [c["field"] for c in cols if c["field"] in df.columns]
     data = df[fields].copy()
 
-    # 走勢欄：把數列轉成區塊字元字串
+    # 走勢欄：把數列轉成 CSS background 字串
     for c in cols:
         if c["fmt"] == "spark" and c["field"] in data.columns:
             data[c["field"]] = data[c["field"]].apply(
-                lambda v: theme.spark_text(v if isinstance(v, (list, tuple)) else []))
+                lambda v: theme.spark_css(v if isinstance(v, (list, tuple)) else []))
 
     gb = GridOptionsBuilder.from_dataframe(data)
     gb.configure_default_column(sortable=True, filter=False, resizable=True,
@@ -112,7 +115,8 @@ def data_grid(df: pd.DataFrame, cols: list, key: str, *,
             kw["valueFormatter"] = _FMT_JS["pct"]
             kw["cellStyle"] = _BAR_STYLE_JS
         elif c["fmt"] == "spark":
-            kw["cellStyle"] = _SPARK_STYLE
+            kw["cellStyle"] = _SPARK_STYLE_JS
+            kw["valueFormatter"] = _SPARK_HIDE_TEXT   # 不要把 CSS 字串印出來
             kw["sortable"] = False
         # minWidth 是必要的保護：容器一窄（側欄展開、視窗縮小），沒有下限的
         # 欄位會被壓成兩三個字的寬度，整張表變成無法閱讀的色塊。給了下限之後
