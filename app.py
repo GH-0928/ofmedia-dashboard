@@ -12,6 +12,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 import theme
+import grid
 from theme import MEDIA_COLORS
 from auth import require_password
 from data import (load_unified, load_meta_raw, load_asa_raw,
@@ -352,20 +353,19 @@ def show_media_compare(df: pd.DataFrame) -> None:
     stats["share"] = (stats["spend"] / total_spend * 100).round(1) if total_spend > 0 else 0
     stats = stats.sort_values("spend", ascending=False)
 
-    disp = theme.round_money(
-        stats[["media", "spend", "share", "installs", "cpi", "ctr", "cpc"]], "spend")
-    st.dataframe(
-        disp, hide_index=True, width='stretch',
-        column_config={
-            "media": st.column_config.TextColumn("媒體", width="small"),
-            "spend": theme.money_col("花費 ($)"),
-            "share": theme.share_col("花費占比", "占期間總花費的比例"),
-            "installs": theme.int_col("安裝"),
-            "cpi": theme.cost_col("CPI", "花費 / 安裝"),
-            "ctr": theme.pct_col("CTR", "點擊 / 曝光"),
-            "cpc": theme.cost_col("CPC", "花費 / 點擊"),
-        },
-    )
+    grid.data_grid(
+        stats[["media", "spend", "share", "installs", "cpi", "ctr", "cpc"]],
+        [
+            grid.col("media", "媒體", width=120, pinned="left"),
+            grid.col("spend", "花費 ($)", "money", width=120),
+            grid.col("share", "花費占比", "bar", flex=1,
+                     help="占期間總花費的比例"),
+            grid.col("installs", "安裝", "int", width=100),
+            grid.col("cpi", "CPI", "cost", width=96, help="花費 / 安裝"),
+            grid.col("ctr", "CTR", "pct", width=92, help="點擊 / 曝光"),
+            grid.col("cpc", "CPC", "cost", width=96, help="花費 / 點擊"),
+        ],
+        key="grid_media_compare", selection="none")
 
     # CPI 排行：安裝量太少的媒體 CPI 是雜訊，門檻設 10
     rank = stats[stats["installs"] >= 10].sort_values("cpi")
@@ -432,18 +432,16 @@ def show_geo_os(df: pd.DataFrame) -> None:
     geo["cpc"] = (geo["spend"] / geo["clicks"]).replace(
         [float("inf"), float("-inf")], 0).fillna(0).round(2)
     top15 = geo.sort_values("spend", ascending=False).head(15)
-    st.dataframe(
-        theme.round_money(top15[["country", "spend", "installs", "cpi", "cpc"]],
-                          "spend"),
-        hide_index=True, width='stretch',
-        column_config={
-            "country": st.column_config.TextColumn("國家"),
-            "spend": theme.money_col("花費 ($)"),
-            "installs": theme.int_col("安裝"),
-            "cpi": theme.cost_col("CPI"),
-            "cpc": theme.cost_col("CPC"),
-        },
-    )
+    grid.data_grid(
+        top15[["country", "spend", "installs", "cpi", "cpc"]],
+        [
+            grid.col("country", "國家", width=120, pinned="left"),
+            grid.col("spend", "花費 ($)", "money", flex=1),
+            grid.col("installs", "安裝", "int", flex=1),
+            grid.col("cpi", "CPI", "cost", flex=1),
+            grid.col("cpc", "CPC", "cost", flex=1),
+        ],
+        key="grid_geo_country", selection="none")
 
     st.markdown(theme.section("國家 × 媒體 CPI", "綠＝便宜，紅＝貴；空格代表無安裝"),
                 unsafe_allow_html=True)
@@ -468,59 +466,31 @@ def show_geo_os(df: pd.DataFrame) -> None:
     st.plotly_chart(fig, width='stretch', config=theme.PLOTLY_CONFIG)
 
 
-def show_campaign_table(df: pd.DataFrame, media_filter: str = "全部") -> None:
-    """Campaign 排行，並標出高花費低安裝與明顯偏離同媒體均值的項目。"""
-    if media_filter != "全部":
-        df = df[df["media"] == media_filter]
-    if df.empty:
+def show_campaign_table(df: pd.DataFrame, media_filter: str = "全部",
+                        key: str = "grid_campaign") -> tuple:
+    """單一媒體的 Campaign 排行。
+
+    與 Meta 深度頁共用同一套指標、快篩與欄位，操作方式也一致：點一列看
+    走勢、Ctrl 複選做對比。回傳 (該媒體的原始資料, 被選取的 campaign)。
+    """
+    sub = df if media_filter == "全部" else df[df["media"] == media_filter]
+    if sub.empty:
         st.info("此條件下無資料")
-        return
-    cmp = df.groupby(["media", "campaign"]).agg(
-        spend=("spend", "sum"),
-        installs=("installs", "sum"),
-        clicks=("clicks", "sum"),
-        impressions=("impressions", "sum"),
-    ).reset_index()
-    cmp["cpi"] = (cmp["spend"] / cmp["installs"]).replace(
-        [float("inf"), float("-inf")], 0).fillna(0).round(2)
-    cmp["ctr"] = (cmp["clicks"] / cmp["impressions"] * 100).replace(
-        [float("inf"), float("-inf")], 0).fillna(0).round(2)
-    cmp = cmp.sort_values("spend", ascending=False)
+        return sub, []
 
-    # 各媒體的 CPI 均值（只取安裝滿 10 的 campaign，避免雜訊拉歪基準）
-    # 先篩再 groupby：groupby().apply() 在 pandas 2.2 會對分組欄發出
-    # FutureWarning，且這裡本來就不需要整組資料。
-    media_avg_cpi = (cmp[cmp["installs"] >= 10]
-                     .groupby("media")["cpi"].mean().to_dict())
+    stats = _add_cpi_trend_cols(_meta_metrics(sub, "campaign"), sub, "campaign")
+    mode = st.segmented_control("快篩", QUICK_MODES, default="全部",
+                                key=f"qf_{key}") or "全部"
+    view = _quick_filter(stats, mode)
+    if view.empty:
+        st.info(f"「{mode}」條件下沒有 Campaign。")
+        return sub, []
+    if mode != "全部":
+        st.caption(f"{mode}：{len(view)} / {len(stats)} 個 Campaign")
 
-    def label_row(r):
-        if r["installs"] < 5 and r["spend"] > 100:
-            return "高花費低安裝"
-        avg = media_avg_cpi.get(r["media"], 0)
-        if avg > 0 and r["installs"] >= 10:
-            if r["cpi"] < avg * 0.7:
-                return "優於均值 30%+"
-            if r["cpi"] > avg * 1.5:
-                return "高於均值 50%+"
-        return ""
-
-    cmp["note"] = cmp.apply(label_row, axis=1)
-    st.dataframe(
-        theme.round_money(
-            cmp[["media", "campaign", "spend", "installs", "cpi", "ctr", "note"]],
-            "spend"),
-        hide_index=True, width='stretch', height=460,
-        column_config={
-            "media": st.column_config.TextColumn("媒體", width="small"),
-            "campaign": st.column_config.TextColumn("Campaign", width="large"),
-            "spend": theme.money_col("花費 ($)"),
-            "installs": theme.int_col("安裝"),
-            "cpi": theme.cost_col("CPI"),
-            "ctr": theme.pct_col("CTR"),
-            "note": st.column_config.TextColumn(
-                "標註", help="與同媒體其他 campaign 的 CPI 均值比較"),
-        },
-    )
+    sel = grid.data_grid(view, _level_columns("campaign", "Campaign", False),
+                         key=key, selection="multi")
+    return sub, grid.selected_values(sel, "campaign")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -704,10 +674,11 @@ def _meta_ad_detail_chart(sub: pd.DataFrame, name: str,
 
 
 def _add_cpi_trend_cols(stats: pd.DataFrame, raw_sub: pd.DataFrame,
-                         group_col: str) -> pd.DataFrame:
-    """為 stats DataFrame 加上 14 天 sparkline + 昨日/3日/7日 CPI 四欄。
+                        group_col: str) -> pd.DataFrame:
+    """加上 14 天 CPI 走勢（給 sparkline）與昨日 / 3 日 / 7 日 CPI 四欄。
 
-    沒安裝那天的單日 CPI = 0;3日/7日 CPI 用累積花費 / 累積安裝(不是平均)。
+    沒安裝那天的單日 CPI 記為 0；3 日與 7 日 CPI 用累積花費除以累積安裝，
+    不是把每日 CPI 平均（那會被低量的日子拉歪）。
     """
     if raw_sub.empty or stats.empty:
         return stats
@@ -723,104 +694,144 @@ def _add_cpi_trend_cols(stats: pd.DataFrame, raw_sub: pd.DataFrame,
         installs=("installs", "sum"),
     ).reset_index()
 
-    sparkline_map, yday_map, d3_map, d7_map = {}, {}, {}, {}
+    spark_map, yday_map, d3_map, d7_map = {}, {}, {}, {}
     for key in stats[group_col].unique():
-        ad_daily = daily[daily[group_col] == key].set_index("date_only")
-        # 14 天 sparkline
-        cpi_values = []
+        item = daily[daily[group_col] == key].set_index("date_only")
+        values = []
         for d in date_range_14d:
-            if d in ad_daily.index:
-                sp = ad_daily.loc[d, "spend"]
-                inst = ad_daily.loc[d, "installs"]
-                cpi_values.append(round(sp / inst, 2) if inst > 0 else 0.0)
+            if d in item.index:
+                sp, inst = item.loc[d, "spend"], item.loc[d, "installs"]
+                values.append(round(sp / inst, 2) if inst > 0 else 0.0)
             else:
-                cpi_values.append(0.0)
-        sparkline_map[key] = cpi_values
-        # 昨日(最新一天)
-        if max_d_norm in ad_daily.index:
-            sp = ad_daily.loc[max_d_norm, "spend"]
-            inst = ad_daily.loc[max_d_norm, "installs"]
+                values.append(0.0)
+        spark_map[key] = values
+
+        if max_d_norm in item.index:
+            sp, inst = item.loc[max_d_norm, "spend"], item.loc[max_d_norm, "installs"]
             yday_map[key] = round(sp / inst, 2) if inst > 0 else 0.0
         else:
             yday_map[key] = 0.0
-        # 3 日累積
-        d3_data = ad_daily.loc[ad_daily.index >= max_d_norm - pd.Timedelta(days=2)]
-        sp3, inst3 = d3_data["spend"].sum(), d3_data["installs"].sum()
-        d3_map[key] = round(sp3 / inst3, 2) if inst3 > 0 else 0.0
-        # 7 日累積
-        d7_data = ad_daily.loc[ad_daily.index >= max_d_norm - pd.Timedelta(days=6)]
-        sp7, inst7 = d7_data["spend"].sum(), d7_data["installs"].sum()
-        d7_map[key] = round(sp7 / inst7, 2) if inst7 > 0 else 0.0
+
+        d3 = item.loc[item.index >= max_d_norm - pd.Timedelta(days=2)]
+        d3_map[key] = round(d3["spend"].sum() / d3["installs"].sum(), 2) \
+            if d3["installs"].sum() > 0 else 0.0
+        d7 = item.loc[item.index >= max_d_norm - pd.Timedelta(days=6)]
+        d7_map[key] = round(d7["spend"].sum() / d7["installs"].sum(), 2) \
+            if d7["installs"].sum() > 0 else 0.0
 
     stats = stats.copy()
-    stats["CPI 走勢"] = stats[group_col].map(sparkline_map)
-    stats["昨日CPI"] = stats[group_col].map(yday_map)
-    stats["3日CPI"] = stats[group_col].map(d3_map)
-    stats["7日CPI"] = stats[group_col].map(d7_map)
+    stats["spark"] = stats[group_col].map(spark_map)
+    stats["cpi_yday"] = stats[group_col].map(yday_map)
+    stats["cpi_3d"] = stats[group_col].map(d3_map)
+    stats["cpi_7d"] = stats[group_col].map(d7_map)
     return stats
 
 
 def _meta_metrics(df: pd.DataFrame, group_col: str) -> pd.DataFrame:
-    """共用:計算 Meta drill-down 各層級的標準指標(花費/安裝/CPI/CTR/CVR/CPM)。"""
+    """各層級的標準指標（花費 / 安裝 / CPI / CTR / CVR / CPM），依花費排序。"""
     g = df.groupby(group_col).agg(
         spend=("spend", "sum"),
         installs=("installs", "sum"),
         clicks=("clicks", "sum"),
         impressions=("impressions", "sum"),
     ).reset_index()
-    g["CPI($)"] = (g["spend"] / g["installs"]).replace(
+    g["cpi"] = (g["spend"] / g["installs"]).replace(
         [float("inf"), float("-inf")], 0).fillna(0).round(2)
-    g["CTR(%)"] = (g["clicks"] / g["impressions"] * 100).replace(
+    g["ctr"] = (g["clicks"] / g["impressions"] * 100).replace(
         [float("inf"), float("-inf")], 0).fillna(0).round(2)
-    g["CVR(%)"] = (g["installs"] / g["clicks"] * 100).replace(
+    g["cvr"] = (g["installs"] / g["clicks"] * 100).replace(
         [float("inf"), float("-inf")], 0).fillna(0).round(2)
-    g["CPM($)"] = (g["spend"] / g["impressions"] * 1000).replace(
+    g["cpm"] = (g["spend"] / g["impressions"] * 1000).replace(
         [float("inf"), float("-inf")], 0).fillna(0).round(2)
+    g["spend"] = g["spend"].round(0)
     return g.sort_values("spend", ascending=False)
 
 
-def _meta_render_table(stats: pd.DataFrame, key_col: str, label: str,
-                       table_key: str) -> int:
-    """可點選的下鑽表格，回傳被點擊的列索引（-1 = 沒選）。
+# ── 快篩：直接對應「找該關的」與「檢查昨天異常」兩個任務 ────────────
+QUICK_MODES = ["全部", "需要注意", "表現好"]
 
-    欄位一律保留數值型別、只在 column_config 設定顯示格式，點欄位排序才會
-    照數值大小排（早期版本先把金額轉成 "$1,234" 字串，排序會變字典序）。
-    stats 若含「狀態」或 CPI 走勢欄會自動加上。
-    """
-    cols = [key_col, "spend", "installs", "CPI($)", "CTR(%)", "CVR(%)", "CPM($)"]
-    cfg = {
-        key_col: st.column_config.TextColumn(label, width="large"),
-        "spend": theme.money_col("花費 ($)"),
-        "installs": theme.int_col("安裝"),
-        "CPI($)": theme.cost_col("CPI", "花費 / 安裝"),
-        "CTR(%)": theme.pct_col("CTR", "點擊 / 曝光"),
-        "CVR(%)": theme.pct_col("CVR", "安裝 / 點擊"),
-        "CPM($)": theme.cost_col("CPM", "每千次曝光成本"),
-    }
-    if "狀態" in stats.columns:
-        cols = ["狀態"] + cols
-        cfg["狀態"] = st.column_config.TextColumn("狀態", width="small")
-    if "CPI 走勢" in stats.columns:
-        cols += ["昨日CPI", "3日CPI", "7日CPI", "CPI 走勢"]
-        cfg.update({
-            "昨日CPI": theme.cost_col("昨日 CPI", "最新一天的 CPI"),
-            "3日CPI": theme.cost_col("3 日 CPI", "最近 3 天累積花費 / 累積安裝"),
-            "7日CPI": theme.cost_col("7 日 CPI", "最近 7 天累積花費 / 累積安裝"),
-            "CPI 走勢": st.column_config.LineChartColumn(
-                "CPI 走勢 (14 天)", help="沒有安裝的那天記為 0", y_min=0),
-        })
 
-    event = st.dataframe(
-        theme.round_money(stats[cols], "spend"),
-        hide_index=True, width='stretch', height=460,
-        on_select="rerun", selection_mode="single-row", key=table_key,
-        column_config=cfg,
-    )
-    if event and getattr(event, "selection", None):
-        rows = event.selection.get("rows", [])
-        if rows:
-            return rows[0]
-    return -1
+def _quick_filter(stats: pd.DataFrame, mode: str) -> pd.DataFrame:
+    """依快篩模式挑出項目。需要 cpi_yday / cpi_7d 欄，沒有就原樣回傳。"""
+    if mode == "全部" or stats.empty or "cpi_7d" not in stats.columns:
+        return stats
+    if mode == "需要注意":
+        # 昨天的 CPI 比 7 日水準貴三成以上，或花了錢卻幾乎沒帶量
+        worse = (stats["cpi_7d"] > 0) & (stats["cpi_yday"] > stats["cpi_7d"] * 1.3)
+        wasted = (stats["spend"] > 100) & (stats["installs"] < 5)
+        return stats[worse | wasted]
+    # 表現好：昨天明顯比 7 日水準便宜，且量體不是零星幾個
+    better = ((stats["cpi_yday"] > 0)
+              & (stats["cpi_yday"] < stats["cpi_7d"] * 0.8)
+              & (stats["installs"] >= 10))
+    return stats[better]
+
+
+def _level_columns(group_col: str, label: str, has_status: bool) -> list:
+    """下鑽表格的欄位順序：診斷 CPI 要並排看，所以昨日 / 7 日 / 走勢緊跟 CPI。"""
+    cols = []
+    if has_status:
+        cols.append(grid.col("status_zh", "狀態", width=96))
+    cols += [
+        grid.col(group_col, label, flex=2, pinned="left"),
+        grid.col("spend", "花費 ($)", "money", width=110),
+        grid.col("installs", "安裝", "int", width=90),
+        grid.col("cpi", "CPI", "cost", width=92, help="期間內：花費 / 安裝"),
+        grid.col("cpi_yday", "昨日", "cost", width=88, help="最新一天的 CPI"),
+        grid.col("cpi_7d", "7 日", "cost", width=88,
+                 help="最近 7 天累積花費 / 累積安裝"),
+        grid.col("spark", "14 天走勢", "spark", width=100),
+        grid.col("ctr", "CTR", "pct", width=84),
+        grid.col("cvr", "CVR", "pct", width=84),
+        grid.col("cpm", "CPM", "cost", width=90),
+    ]
+    return cols
+
+
+def _selection_charts(sub: pd.DataFrame, group_col: str, names: list) -> None:
+    """選一個就畫完整走勢，選多個就畫 CPI 疊圖對比。"""
+    if not names:
+        st.caption("點表格裡的任一列查看走勢；按住 Ctrl 或 Shift 可複選多列做對比。")
+        return
+    max_d = sub["date"].max()
+    start_14d = (max_d - pd.Timedelta(days=13)).normalize()
+    if len(names) == 1:
+        st.markdown(theme.section(html.escape(str(names[0])), "14 天詳細走勢"),
+                    unsafe_allow_html=True)
+        _meta_ad_detail_chart(sub, names[0], start_14d, max_d, group_col=group_col)
+        return
+
+    shown = names[:5]
+    extra = f"（選了 {len(names)} 個，只畫前 5 個）" if len(names) > 5 else ""
+    st.markdown(theme.section("CPI 對比", f"最近 14 天{extra}"),
+                unsafe_allow_html=True)
+    fig = go.Figure()
+    for i, name in enumerate(shown):
+        item = sub[sub[group_col] == name].copy()
+        item["date_only"] = item["date"].dt.normalize()
+        daily = item.groupby("date_only").agg(
+            spend=("spend", "sum"), installs=("installs", "sum")).reset_index()
+        full = pd.DataFrame({"date_only": pd.date_range(start_14d,
+                                                        max_d.normalize(), freq="D")})
+        full = full.merge(daily, on="date_only", how="left").fillna(0)
+        full["cpi"] = full.apply(
+            lambda r: round(r["spend"] / r["installs"], 2) if r["installs"] > 0 else None,
+            axis=1)
+        fig.add_trace(go.Scatter(
+            x=full["date_only"], y=full["cpi"], name=str(name)[:28],
+            mode="lines+markers", connectgaps=True,
+            line=dict(color=theme.CHART_SEQ[i % len(theme.CHART_SEQ)], width=2),
+            marker=dict(size=4),
+            hovertemplate=f"{str(name)[:28]}　$%{{y:.2f}}<extra></extra>"))
+    theme.style_fig(fig, height=theme.H_SUB + 40,
+                    margin=dict(t=34, b=22, l=54, r=16))
+    fig.update_layout(hovermode="x unified",
+                      xaxis=dict(tickformat="%m/%d", showgrid=False),
+                      yaxis=dict(title=dict(text="CPI ($)", font=dict(size=11)),
+                                 showgrid=True, gridcolor=theme.BORDER,
+                                 rangemode="tozero"))
+    st.plotly_chart(fig, width='stretch', config=theme.PLOTLY_CONFIG)
+    st.caption("沒有安裝的日子會斷點；線段中斷代表那天沒帶到量。")
 
 
 def _apply_raw_filters(df: pd.DataFrame, os_choice: str, country_choice: str) -> pd.DataFrame:
@@ -841,8 +852,41 @@ def _apply_raw_filters(df: pd.DataFrame, os_choice: str, country_choice: str) ->
     return df
 
 
+def _meta_breadcrumb() -> None:
+    """可點的麵包屑：每一層是一顆按鈕，點了直接跳回該層。"""
+    ss = st.session_state
+    crumbs = [("Meta Campaign", "root")]
+    if ss.meta_drill_campaign:
+        crumbs.append((str(ss.meta_drill_campaign), "campaign"))
+    if ss.meta_drill_ad_group:
+        crumbs.append((str(ss.meta_drill_ad_group), "ad_group"))
+
+    # 按鈕寬度按字數分配，最後留一欄空白，避免最後一顆被拉得很寬
+    widths = [max(len(t) * 0.55 + 2.2, 4.5) for t, _ in crumbs]
+    cols = st.columns(widths + [max(6.0, 20 - sum(widths))])
+    for i, (text, level) in enumerate(crumbs):
+        last = i == len(crumbs) - 1
+        label = text if len(text) <= 26 else text[:25] + "…"
+        with cols[i]:
+            if last:
+                # 目前所在層級不做成按鈕，只標示位置
+                st.markdown(
+                    f'<div style="padding:6px 0;font-size:13px;font-weight:600;'
+                    f'color:{theme.TEXT}">{html.escape(label)}</div>',
+                    unsafe_allow_html=True)
+            elif st.button(f"{label}", key=f"crumb_{level}", width='stretch'):
+                if level == "root":
+                    ss.meta_drill_campaign = None
+                ss.meta_drill_ad_group = None
+                st.rerun()
+
+
 def deep_dive_meta(date_start, date_end, os_choice="全部", country_choice="全部") -> None:
-    """Meta 三層下鑽：Campaign → Ad Group → 素材。"""
+    """Meta 三層下鑽：Campaign → Ad Group → 素材。
+
+    互動規則：點一列＝看走勢（不換層），要換層按「查看…」按鈕，
+    麵包屑可以直接跳回上層。
+    """
     df = load_meta_raw()
     if df.empty:
         st.info("Meta_raw 無資料")
@@ -857,85 +901,55 @@ def deep_dive_meta(date_start, date_end, os_choice="全部", country_choice="全
     ss.setdefault("meta_drill_campaign", None)
     ss.setdefault("meta_drill_ad_group", None)
 
-    # 麵包屑：最後一段是目前所在層級
-    items = [("Campaign", not ss.meta_drill_campaign)]
-    if ss.meta_drill_campaign:
-        items.append((html.escape(str(ss.meta_drill_campaign)),
-                      not ss.meta_drill_ad_group))
-    if ss.meta_drill_ad_group:
-        items.append((html.escape(str(ss.meta_drill_ad_group)), True))
-    st.markdown(theme.crumb(items), unsafe_allow_html=True)
-
-    if ss.meta_drill_ad_group:
-        c1, c2, _ = st.columns([1.4, 1.7, 4])
-        if c1.button("← 返回 Ad Group", key="back_ag", width='stretch'):
-            ss.meta_drill_ad_group = None
-            st.rerun()
-        if c2.button("← 回 Campaign 清單", key="back_to_cmp", width='stretch'):
-            ss.meta_drill_campaign = None
-            ss.meta_drill_ad_group = None
-            st.rerun()
-    elif ss.meta_drill_campaign:
-        c1, _ = st.columns([1.4, 5.7])
-        if c1.button("← 返回 Campaign", key="back_cmp", width='stretch'):
-            ss.meta_drill_campaign = None
-            st.rerun()
-
-    # ── 第 1 層：Campaign ──
+    # 目前在哪一層：決定資料範圍、分組欄位、下一層的名稱
     if ss.meta_drill_campaign is None:
-        st.caption("點任一列的選取框，進入該 Campaign 的 Ad Group")
-        stats = _add_cpi_trend_cols(_meta_metrics(df, "campaign"), df, "campaign")
-        idx = _meta_render_table(stats, "campaign", "Campaign", "tbl_meta_campaign")
-
-        # 趨勢圖用獨立的下拉選擇，避免與表格點選下鑽互相干擾
-        st.markdown(theme.section("單一 Campaign 走勢", "選擇後顯示 14 天明細，不會觸發下鑽"),
-                    unsafe_allow_html=True)
-        pick = st.selectbox("Campaign", ["（不選）"] + stats["campaign"].tolist(),
-                            key="cmp_chart_select", label_visibility="collapsed")
-        if pick != "（不選）":
-            max_d = df["date"].max()
-            _meta_ad_detail_chart(df, pick,
-                                  (max_d - pd.Timedelta(days=13)).normalize(),
-                                  max_d, group_col="campaign")
-
-        if idx >= 0:
-            ss.meta_drill_campaign = stats.iloc[idx]["campaign"]
-            st.rerun()
-
-    # ── 第 2 層：Ad Group ──
+        sub, group_col, label, next_label = df, "campaign", "Campaign", "Ad Group"
     elif ss.meta_drill_ad_group is None:
         sub = df[df["campaign"] == ss.meta_drill_campaign]
-        if sub.empty or "ad_group" not in sub.columns:
-            st.warning("此 Campaign 無 Ad Group 資料")
-            return
-        st.caption("點任一列查看該 Ad Group 的素材")
-        stats = _add_cpi_trend_cols(_meta_metrics(sub, "ad_group"), sub, "ad_group")
-        idx = _meta_render_table(stats, "ad_group", "Ad Group", "tbl_meta_ad_group")
-        if idx >= 0:
-            ss.meta_drill_ad_group = stats.iloc[idx]["ad_group"]
-            st.rerun()
-
-    # ── 第 3 層：素材 ──
+        group_col, label, next_label = "ad_group", "Ad Group", "素材"
     else:
         sub = df[(df["campaign"] == ss.meta_drill_campaign)
                  & (df["ad_group"] == ss.meta_drill_ad_group)]
-        if sub.empty or "ad" not in sub.columns:
-            st.warning("此 Ad Group 無素材資料")
-            return
-        stats = _meta_metrics(sub, "ad")
-        status_map = _latest_status_map(sub, "ad")
-        stats["狀態"] = stats["ad"].map(lambda x: _status_zh(status_map.get(x, "")))
-        stats = _add_cpi_trend_cols(stats, sub, "ad")
+        group_col, label, next_label = "ad", "素材 (Ad)", None
 
-        st.caption("點任一列查看該素材的 14 天走勢")
-        idx = _meta_render_table(stats, "ad", "素材 (Ad)", "tbl_meta_ad")
-        if idx >= 0:
-            selected = stats.iloc[idx]["ad"]
-            max_d = sub["date"].max()
-            st.markdown(theme.section(html.escape(str(selected)), "14 天詳細走勢"),
-                        unsafe_allow_html=True)
-            _meta_ad_detail_chart(sub, selected,
-                                  (max_d - pd.Timedelta(days=13)).normalize(), max_d)
+    _meta_breadcrumb()
+
+    if sub.empty or group_col not in sub.columns:
+        st.warning(f"這一層沒有 {label} 資料")
+        return
+
+    stats = _meta_metrics(sub, group_col)
+    has_status = False
+    if group_col == "ad":
+        status_map = _latest_status_map(sub, "ad")
+        stats["status_zh"] = stats["ad"].map(lambda x: _status_zh(status_map.get(x, "")))
+        has_status = True
+    stats = _add_cpi_trend_cols(stats, sub, group_col)
+
+    mode = st.segmented_control("快篩", QUICK_MODES, default="全部",
+                                key=f"qf_meta_{group_col}") or "全部"
+    view = _quick_filter(stats, mode)
+    if view.empty:
+        st.info(f"「{mode}」條件下沒有項目。")
+        return
+    if mode != "全部":
+        st.caption(f"{mode}：{len(view)} / {len(stats)} 個 {label}")
+
+    sel = grid.data_grid(view, _level_columns(group_col, label, has_status),
+                         key=f"grid_meta_{group_col}", selection="multi")
+    names = grid.selected_values(sel, group_col)
+
+    # 下鑽：選中單一項目且還有下一層時才出現
+    if next_label and len(names) == 1:
+        if st.button(f"查看「{str(names[0])[:26]}」的 {next_label} →",
+                     key=f"drill_{group_col}", type="primary"):
+            if group_col == "campaign":
+                ss.meta_drill_campaign = names[0]
+            else:
+                ss.meta_drill_ad_group = names[0]
+            st.rerun()
+
+    _selection_charts(sub, group_col, names)
 
 
 _MATCH_TYPE_DISPLAY = {
@@ -987,35 +1001,14 @@ def deep_dive_asa(date_start, date_end, os_choice="全部", country_choice="全�
         st.warning("篩選後無資料")
         return
 
-    st.markdown(theme.section("關鍵字排行", "前 30 名，依花費排序"),
+    st.markdown(theme.section("關鍵字排行", "前 30 名依花費排序；點一列看走勢"),
                 unsafe_allow_html=True)
     if "keyword" in df_f.columns:
-        kw = df_f.groupby("keyword").agg(
-            spend=("spend", "sum"),
-            installs=("installs", "sum"),
-            clicks=("clicks", "sum"),
-            impressions=("impressions", "sum"),
-        ).reset_index()
-        kw["cpi"] = (kw["spend"] / kw["installs"]).replace(
-            [float("inf"), float("-inf")], 0).fillna(0).round(2)
-        kw["ctr"] = (kw["clicks"] / kw["impressions"] * 100).replace(
-            [float("inf"), float("-inf")], 0).fillna(0).round(2)
-        kw["cvr"] = (kw["installs"] / kw["clicks"] * 100).replace(
-            [float("inf"), float("-inf")], 0).fillna(0).round(2)
-        kw = kw.sort_values("spend", ascending=False).head(30)
-        st.dataframe(
-            theme.round_money(
-                kw[["keyword", "spend", "installs", "cpi", "ctr", "cvr"]], "spend"),
-            hide_index=True, width='stretch', height=460,
-            column_config={
-                "keyword": st.column_config.TextColumn("關鍵字", width="large"),
-                "spend": theme.money_col("花費 ($)"),
-                "installs": theme.int_col("安裝"),
-                "cpi": theme.cost_col("CPI"),
-                "ctr": theme.pct_col("CTR"),
-                "cvr": theme.pct_col("CVR"),
-            },
-        )
+        kw = _add_cpi_trend_cols(_meta_metrics(df_f, "keyword"), df_f, "keyword")
+        kw = kw.head(30)
+        sel = grid.data_grid(kw, _level_columns("keyword", "關鍵字", False),
+                             key="grid_asa_keyword", selection="multi")
+        _selection_charts(df_f, "keyword", grid.selected_values(sel, "keyword"))
 
     st.markdown(theme.section("搜尋詞表現", "前 30 名，依花費排序"),
                 unsafe_allow_html=True)
@@ -1027,61 +1020,39 @@ def deep_dive_asa(date_start, date_end, os_choice="全部", country_choice="全�
         stm = stm[stm["spend"] > 0].sort_values("spend", ascending=False).head(30)
         stm["cpi"] = (stm["spend"] / stm["installs"]).replace(
             [float("inf"), float("-inf")], 0).fillna(0).round(2)
-        st.dataframe(
-            theme.round_money(stm[["search_term", "spend", "installs", "cpi"]],
-                              "spend"),
-            hide_index=True, width='stretch',
-            column_config={
-                "search_term": st.column_config.TextColumn("搜尋詞", width="large"),
-                "spend": theme.money_col("花費 ($)"),
-                "installs": theme.int_col("安裝"),
-                "cpi": theme.cost_col("CPI"),
-            },
-        )
+        stm["spend"] = stm["spend"].round(0)
+        grid.data_grid(
+            stm[["search_term", "spend", "installs", "cpi"]],
+            [
+                grid.col("search_term", "搜尋詞", flex=2, pinned="left"),
+                grid.col("spend", "花費 ($)", "money", width=120),
+                grid.col("installs", "安裝", "int", width=100),
+                grid.col("cpi", "CPI", "cost", width=96),
+            ],
+            key="grid_asa_term", selection="none")
 
 
-def _google_table(df: pd.DataFrame, group_col: str, label: str,
-                  sort_by_spend: bool = True, head: int = None) -> None:
-    """Google 深度頁的標準表格（Network / Ad Group 共用）。"""
-    g = df.groupby(group_col).agg(
-        spend=("spend", "sum"),
-        installs=("installs", "sum"),
-        clicks=("clicks", "sum"),
-        impressions=("impressions", "sum"),
-    ).reset_index()
-    g["cpm"] = (g["spend"] / g["impressions"] * 1000).replace(
-        [float("inf"), float("-inf")], 0).fillna(0).round(2)
-    g["ctr"] = (g["clicks"] / g["impressions"] * 100).replace(
-        [float("inf"), float("-inf")], 0).fillna(0).round(2)
-    g["cpi"] = (g["spend"] / g["installs"]).replace(
-        [float("inf"), float("-inf")], 0).fillna(0).round(2)
-    g["cvr"] = (g["installs"] / g["clicks"] * 100).replace(
-        [float("inf"), float("-inf")], 0).fillna(0).round(2)
-    if sort_by_spend:
-        g = g.sort_values("spend", ascending=False)
-    if head:
-        g = g.head(head)
+def _google_network_table(df: pd.DataFrame) -> None:
+    """Network 對比（唯讀）：搜尋 / 多媒體聯播網 / YouTube / 搜尋夥伴。"""
+    g = _meta_metrics(df, "network")
     if g.empty:
         st.info("無資料")
         return
-
-    st.dataframe(
-        theme.round_money(
-            g[[group_col, "spend", "impressions", "cpm", "clicks", "ctr",
-               "installs", "cpi", "cvr"]], "spend"),
-        hide_index=True, width='stretch', height=460,
-        column_config={
-            group_col: st.column_config.TextColumn(label, width="large"),
-            "spend": theme.money_col("花費 ($)"),
-            "impressions": theme.int_col("曝光"),
-            "cpm": theme.cost_col("CPM"),
-            "clicks": theme.int_col("點擊"),
-            "ctr": theme.pct_col("CTR"),
-            "installs": theme.int_col("安裝"),
-            "cpi": theme.cost_col("CPI", "花費 / 安裝"),
-            "cvr": theme.pct_col("CVR"),
-        },
-    )
+    grid.data_grid(
+        g[["network", "spend", "impressions", "cpm", "clicks", "ctr",
+           "installs", "cpi", "cvr"]],
+        [
+            grid.col("network", "Network", flex=2, pinned="left"),
+            grid.col("spend", "花費 ($)", "money", width=118),
+            grid.col("impressions", "曝光", "int", width=110),
+            grid.col("cpm", "CPM", "cost", width=92),
+            grid.col("clicks", "點擊", "int", width=100),
+            grid.col("ctr", "CTR", "pct", width=88),
+            grid.col("installs", "安裝", "int", width=96),
+            grid.col("cpi", "CPI", "cost", width=92),
+            grid.col("cvr", "CVR", "pct", width=88),
+        ],
+        key="grid_google_network", selection="none")
 
 
 def deep_dive_google(date_start, date_end, os_choice="全部", country_choice="全部") -> None:
@@ -1099,12 +1070,16 @@ def deep_dive_google(date_start, date_end, os_choice="全部", country_choice="�
     st.markdown(theme.section("Network 對比", "搜尋 / 多媒體聯播網 / YouTube / 搜尋夥伴"),
                 unsafe_allow_html=True)
     if "network" in df.columns:
-        _google_table(df, "network", "Network")
+        _google_network_table(df)
 
-    st.markdown(theme.section("Ad Group 排行", "前 30 名，依花費排序"),
+    st.markdown(theme.section("Ad Group 排行", "前 30 名依花費排序；點一列看走勢"),
                 unsafe_allow_html=True)
     if "ad_group" in df.columns:
-        _google_table(df, "ad_group", "Ad Group", head=30)
+        ag = _add_cpi_trend_cols(_meta_metrics(df, "ad_group"), df, "ad_group")
+        ag = ag.head(30)
+        sel = grid.data_grid(ag, _level_columns("ad_group", "Ad Group", False),
+                             key="grid_google_adgroup", selection="multi")
+        _selection_charts(df, "ad_group", grid.selected_values(sel, "ad_group"))
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -1339,9 +1314,12 @@ with tab_deep:
         else:
             st.warning("請選擇完整日期範圍")
     else:
-        st.markdown(theme.section(f"{deep_media} Campaign 排行"),
+        st.markdown(theme.section(f"{deep_media} Campaign 排行",
+                                  "點一列看走勢，Ctrl 複選可做對比"),
                     unsafe_allow_html=True)
-        show_campaign_table(df, deep_media)
+        _sub, _picked = show_campaign_table(df, deep_media,
+                                            key=f"grid_cmp_{deep_media}")
+        _selection_charts(_sub, "campaign", _picked)
 
         # ASA 與 Google 另有各自的獨家欄位（關鍵字 / Network），
         # TikTok、Applovin、Moloco 只到 campaign 層。

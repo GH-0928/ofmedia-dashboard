@@ -20,12 +20,21 @@ Ocean Fishooter UA 投放儀表板，以 6 個媒體（Meta / ASA / Google / Tik
 | 地區・OS | iOS 與 Android 對照、國家表現前 15 名、國家 × 媒體 CPI 熱力圖 |
 | 媒體深度 | Meta 三層下鑽（Campaign → Ad Group → 素材）、ASA 關鍵字與搜尋詞、Google Network 與 Ad Group，其餘媒體看 Campaign 排行 |
 
+### 媒體深度頁的操作方式
+
+- **點表格任一列**（列上任何位置都可以）＝ 看該項目的 14 天走勢，不會換層
+- **Ctrl 或 Shift 複選 2～5 列** ＝ 改畫多條 CPI 疊圖做對比，超過 5 個只畫前 5 個
+- **換層要按「查看 ⟨名稱⟩ 的 Ad Group →」按鈕**，選取與下鑽分開，才不會點一下就跳走
+- **麵包屑每層可點**，直接跳回上層
+- **快篩**：`需要注意` 是昨日 CPI 比 7 日水準貴三成以上、或花費破百卻不到 5 個安裝；`表現好` 是昨日 CPI 比 7 日水準便宜兩成以上且安裝滿 10
+
 ## 檔案
 
 | 檔案 | 用途 |
 |---|---|
 | `app.py` | 主程式：資料篩選、各分頁的圖表與表格 |
-| `theme.py` | **視覺系統的唯一來源**：色階、間距、字級、圖表主題、表格欄位格式、共用 HTML 元件 |
+| `theme.py` | **視覺系統的唯一來源**：色階、間距、字級、圖表主題、共用 HTML 元件 |
+| `grid.py` | **表格元件層**：AgGrid 的統一封裝，欄位用 `grid.col()` 宣告，回傳被選取的列 |
 | `data.py` | Google Sheet 讀取與欄位統合 |
 | `auth.py` | 密碼登入閘 |
 | `calendar_view.py` / `calendar_store.py` | 行事曆・待辦 |
@@ -34,7 +43,11 @@ Ocean Fishooter UA 投放儀表板，以 6 個媒體（Meta / ASA / Google / Tik
 ## 維護須知
 
 - **改外觀先看 `theme.py`。** `app.py` 裡不寫 hex 色碼，一律引用 token；`config.toml` 的主題色要跟 `theme.py` 同步，否則原生元件（表格、輸入框）會和自訂卡片不同色系。
-- **表格欄位保留數值型別**，格式化交給 `theme.money_col()`、`cost_col()`、`pct_col()` 這些 helper。若先把數字轉成 `"$1,234"` 字串再丟進 `st.dataframe`，點欄位排序會變成字典序。
+- **表格一律走 `grid.data_grid()`，不要用 `st.dataframe`**。`st.dataframe` 的選取 UI 固定是列首那個小圓圈，點名稱不會有反應；AgGrid 才能點整列。
+- **表格欄位保留數值型別**，顯示格式交給 `grid.col(..., "money" / "cost" / "pct")` 在瀏覽器端處理。若先把數字轉成 `"$1,234"` 字串，點欄位排序會變成字典序。
+- **AgGrid 的 cellRenderer 不能回傳 DOM 節點**（React error #31，整個元件會掛掉）。要畫東西就用 `cellStyle`（占比長條用 CSS 漸層）或在 Python 端轉成文字（走勢用區塊字元 `theme.spark_text()`）。
+- **`data_return_mode` 不能設 `MINIMAL`** —— 那會連 `selected_rows` 一起省掉，表格看起來選中了，Python 端卻永遠收到空的。
+- **每個欄位都要有 minWidth**，否則側欄展開或視窗變窄時欄位會被壓成兩三個字寬。
 - **全域 CSS 不要整個藏 `[data-testid="stToolbar"]`**：展開 sidebar 的按鈕在裡面，藏掉之後 sidebar 一收合就再也打不開，而收合狀態還會被 localStorage 記住。
 - **sidebar 寬度改了要同步改收合位移**（`theme.py` 的 `SIDEBAR_W`），否則收起來會有一條露在畫面上。
 

@@ -2,7 +2,7 @@
 """視覺系統 ── OFmedia 廣告儀表板。
 
 這個模組是全站樣式的**唯一來源**：色階、間距、字級、圓角、圖表主題、
-表格欄位格式、共用 HTML 元件都集中在這裡。
+共用 HTML 元件都集中在這裡。表格本身由 grid.py 負責。
 
 規則：app.py / auth.py / calendar_view.py 不再自己寫 hex 色碼，一律引用
 這裡的 token。要調整整站外觀時只改這個檔案。
@@ -336,58 +336,7 @@ def style_fig(fig, height: int = H_MAIN, legend: bool = True,
 
 
 # ══════════════════════════════════════════════════════════════════════
-#  4. 表格欄位格式
-# ══════════════════════════════════════════════════════════════════════
-# 重點：這些 helper 讓 DataFrame 的欄位**保持數值型別**，只在顯示時格式化。
-# 舊寫法 df["花費($)"] = df["花費"].apply(lambda x: f"${x:,.0f}") 會把數字
-# 變成字串，欄位點擊排序就變成字典序（"$9" 排在 "$10,000" 後面）。
-def round_money(df, *cols):
-    """把金額欄四捨五入到整數後回傳新的 DataFrame。
-
-    NumberColumn 的 "localized" 格式會照實把 705217.67 顯示成
-    "705,217.67"；花費看到小數點沒有意義，先在資料端取整，欄位仍是數值，
-    排序不受影響。
-    """
-    d = df.copy()
-    for c in cols:
-        if c in d.columns:
-            d[c] = d[c].round(0)
-    return d
-
-
-def money_col(label: str, help: str | None = None):
-    """整數金額欄（花費）。顯示千分位，排序仍依數值。"""
-    import streamlit as st
-    return st.column_config.NumberColumn(label, help=help, format="localized")
-
-
-def cost_col(label: str, help: str | None = None):
-    """單位成本欄（CPI / CPM / CPC）。兩位小數 + 貨幣符號。"""
-    import streamlit as st
-    return st.column_config.NumberColumn(label, help=help, format="dollar")
-
-
-def int_col(label: str, help: str | None = None):
-    """整數欄（曝光 / 點擊 / 安裝）。"""
-    import streamlit as st
-    return st.column_config.NumberColumn(label, help=help, format="localized")
-
-
-def pct_col(label: str, help: str | None = None):
-    """百分比欄（CTR / CVR）。資料本身已是 0-100 的數值。"""
-    import streamlit as st
-    return st.column_config.NumberColumn(label, help=help, format="%.2f%%")
-
-
-def share_col(label: str, help: str | None = None):
-    """占比欄，畫成長條（一眼看出預算集中在哪）。"""
-    import streamlit as st
-    return st.column_config.ProgressColumn(
-        label, help=help, format="%.1f%%", min_value=0, max_value=100)
-
-
-# ══════════════════════════════════════════════════════════════════════
-#  5. 共用 HTML 元件
+#  4. 共用 HTML 元件
 # ══════════════════════════════════════════════════════════════════════
 def section(title: str, desc: str = "") -> str:
     """區塊標題。取代 st.subheader + st.markdown("---") 的組合。"""
@@ -432,6 +381,26 @@ def fmt_compact(n: float) -> str:
     if abs(n) >= 1e7:
         return f"{n / 1e6:.1f}M"
     return f"{n:,.0f}"
+
+
+_BLOCKS = "▁▂▃▄▅▆▇█"
+
+
+def spark_text(values: list, width: int = 14) -> str:
+    """用區塊字元畫走勢（▁▂▄▆█），給表格儲存格用。
+
+    表格裡不能用 SVG：AgGrid 的 React 版本要求 cellRenderer 回傳 React
+    元素，塞 DOM 節點會整個元件爆掉（React error #31）。區塊字元是純文字，
+    不需要 renderer，等寬字型下高低一目了然。
+    """
+    if not values:
+        return ""
+    vals = [float(v or 0) for v in values][-width:]
+    lo, hi = min(vals), max(vals)
+    if hi <= lo:
+        return _BLOCKS[0] * len(vals)
+    step = (hi - lo) / (len(_BLOCKS) - 1)
+    return "".join(_BLOCKS[int((v - lo) / step)] for v in vals)
 
 
 def kpi_card(label: str, value: str, delta_pct: float | None = None,
