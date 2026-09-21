@@ -13,6 +13,7 @@ import streamlit as st
 
 import theme
 import grid
+import analysis
 from theme import MEDIA_COLORS
 from auth import require_password
 from data import (load_unified, load_meta_raw, load_asa_raw,
@@ -119,8 +120,13 @@ def show_kpis(df: pd.DataFrame, df_prev: pd.DataFrame = None) -> None:
 # ──────────────────────────────────────────────────────────────────────
 #  圖表
 # ──────────────────────────────────────────────────────────────────────
-def show_daily_trend(df: pd.DataFrame, ops: list = None) -> None:
-    """花費（柱）＋ 安裝與 CPI（線）三軸圖，頂端三角標記當天的廣告操作。"""
+def show_daily_trend(df: pd.DataFrame, ops: list = None,
+                     stacked: bool = False, key: str = "trend") -> pd.Timestamp:
+    """每日趨勢圖，回傳使用者點選的日期（沒點就是 None）。
+
+    stacked=True 時花費柱依媒體堆疊，某天跳動可以直接看出是誰撐起來的；
+    安裝與 CPI 維持單線，六條線疊在一起反而看不出趨勢。
+    """
     daily = df.groupby("date").agg(
         spend=("spend", "sum"),
         installs=("installs", "sum"),
@@ -129,11 +135,25 @@ def show_daily_trend(df: pd.DataFrame, ops: list = None) -> None:
         [float("inf"), float("-inf")], 0).fillna(0)
 
     fig = go.Figure()
-    fig.add_trace(go.Bar(
-        x=daily["date"], y=daily["spend"], name="花費",
-        marker_color=theme.ACCENT, opacity=0.40, yaxis="y1",
-        hovertemplate="花費 $%{y:,.0f}<extra></extra>",
-    ))
+    if stacked and not df.empty:
+        # 依花費排序，大的媒體放底層，堆疊看起來才穩定
+        order = (df.groupby("media")["spend"].sum()
+                 .sort_values(ascending=False).index.tolist())
+        for media in order:
+            sub = df[df["media"] == media].groupby("date")["spend"].sum()
+            sub = sub.reindex(daily["date"], fill_value=0)
+            fig.add_trace(go.Bar(
+                x=daily["date"], y=sub.values, name=media,
+                marker_color=MEDIA_COLORS.get(media, theme.ACCENT),
+                opacity=0.85, yaxis="y1",
+                hovertemplate=f"{media} $%{{y:,.0f}}<extra></extra>"))
+        fig.update_layout(barmode="stack")
+    else:
+        fig.add_trace(go.Bar(
+            x=daily["date"], y=daily["spend"], name="花費",
+            marker_color=theme.ACCENT, opacity=0.40, yaxis="y1",
+            hovertemplate="花費 $%{y:,.0f}<extra></extra>"))
+
     fig.add_trace(go.Scatter(
         x=daily["date"], y=daily["installs"], name="安裝",
         mode="lines+markers", line=dict(color=theme.POS, width=2.2),
@@ -192,7 +212,93 @@ def show_daily_trend(df: pd.DataFrame, ops: list = None) -> None:
                     overlaying="y", side="right", showgrid=False,
                     anchor="free", position=1.0, tickfont=dict(color=theme.WARN)),
     )
-    st.plotly_chart(fig, width='stretch', config=theme.PLOTLY_CONFIG)
+    event = st.plotly_chart(fig, width='stretch', config=theme.PLOTLY_CONFIG,
+                            key=key, on_select="rerun", selection_mode="points")
+    return _picked_date(event)
+
+
+def _picked_date(event) -> pd.Timestamp:
+    """從 plotly 的選取事件取出被點的日期（沒點或取不到就回 None）。"""
+    try:
+        points = event["selection"]["points"]
+    except (KeyError, TypeError):
+        return None
+    for p in points or []:
+        x = p.get("x")
+        if x is None:
+            continue
+        try:
+            return pd.Timestamp(x).normalize()
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
+def show_day_attribution(df: pd.DataFrame, day: pd.Timestamp,
+                         key_prefix: str = "attr") -> None:
+    """某一天的變化歸因：整體 → 媒體 → Campaign。"""
+    label = st.segmented_control(
+        "看哪個指標的變化", list(analysis.METRIC_COLS), default="安裝",
+        key=f"{key_prefix}_metric") or "安裝"
+    col = analysis.METRIC_COLS[label]
+    is_money = col == "spend"
+
+    def fmt(v):
+        return f"${v:,.0f}" if is_money else f"{v:,.0f}"
+
+    media_tbl, cur_total, base_total = analysis.attr_table(df, day, "media", col)
+    delta = cur_total - base_total
+    pct = (delta / base_total * 100) if base_total > 0 else 0.0
+
+    # 當天 / 基準 / 變化三張小卡
+    cards = [
+        ("當天", fmt(cur_total), None),
+        (f"前 {analysis.BASELINE_DAYS} 天日均", fmt(base_total), None),
+        ("變化", f"{'+' if delta >= 0 else ''}{fmt(delta)}", pct),
+    ]
+    for c, (name, value, p) in zip(st.columns(3), cards):
+        c.markdown(theme.kpi_card(name, value, p, "vol", inverse=False,
+                                  delta_text=None),
+                   unsafe_allow_html=True)
+
+    if abs(delta) < 1e-9:
+        st.caption("這天與前幾天的水準幾乎一樣，沒有需要歸因的變化。")
+        return
+
+    st.markdown(theme.section("哪個媒體造成的", "貢獻度＝該媒體的變化佔整體變化的比例"),
+                unsafe_allow_html=True)
+    grid.data_grid(
+        media_tbl, [
+            grid.col("name", "媒體", width=130, pinned="left"),
+            grid.col("cur", "當天", "money" if is_money else "int", width=110),
+            grid.col("base", "基準日均", "money" if is_money else "int", width=120),
+            grid.col("delta", "變化", "money" if is_money else "int", width=110),
+            grid.col("share", "貢獻度", "bar", flex=1,
+                     help="負值代表這個媒體的變化方向與整體相反"),
+        ],
+        key=f"{key_prefix}_media", selection="none")
+
+    st.markdown(theme.section("哪個 Campaign 造成的", "變化最大的前 10 個；點一列看 14 天走勢"),
+                unsafe_allow_html=True)
+    cmp_tbl, _, _ = analysis.attr_table(df, day, "campaign", col)
+    cmp_tbl = cmp_tbl.head(10)
+    # 補上媒體欄，跨媒體看的時候才知道這個 campaign 是誰家的
+    media_of = (df.drop_duplicates("campaign").set_index("campaign")["media"]
+                .to_dict())
+    cmp_tbl["media"] = cmp_tbl["name"].map(media_of).fillna("")
+    sel = grid.data_grid(
+        cmp_tbl, [
+            grid.col("media", "媒體", width=110),
+            grid.col("name", "Campaign", flex=2, pinned="left"),
+            grid.col("cur", "當天", "money" if is_money else "int", width=110),
+            grid.col("base", "基準日均", "money" if is_money else "int", width=120),
+            grid.col("delta", "變化", "money" if is_money else "int", width=110),
+            grid.col("share", "貢獻度", "bar", width=170),
+        ],
+        key=f"{key_prefix}_campaign", selection="single")
+    picked = grid.selected_values(sel, "name")
+    if picked:
+        _selection_charts(df, "campaign", picked)
 
 
 def get_filtered_ops(date_range, media_choice: str = "全部") -> list:
@@ -274,9 +380,43 @@ def show_media_mix(df: pd.DataFrame) -> None:
         col.plotly_chart(fig, width='stretch', config=theme.PLOTLY_CONFIG)
 
 
-def show_alerts(df: pd.DataFrame, df_prev: pd.DataFrame = None) -> None:
-    """與對比期比較後的異常清單。level：neg 惡化 / pos 改善 / warn 注意。"""
+def show_alerts(df: pd.DataFrame, df_prev: pd.DataFrame = None,
+                day_threshold: float = 15.0) -> None:
+    """異常清單：期間 vs 對比期的變化，加上期間內的單日偏離。
+
+    level：neg 惡化 / pos 改善 / warn 注意。
+    """
     alerts = []
+
+    # ── 單日偏離：哪一天跳動，以及是誰造成的 ──
+    # 幅度大的排前面，只列前幾條。門檻放寬時一個月可能有十幾天達標，
+    # 全部列出來會把真正嚴重的那兩天洗掉。
+    MAX_DAY_ALERTS = 5
+    day_hits = analysis.day_anomalies(df, day_threshold)
+    day_hits.sort(key=lambda a: -abs(a["pct"]))
+    for a in day_hits[:MAX_DAY_ALERTS]:
+        d = pd.Timestamp(a["day"]).strftime("%m/%d")
+        up = a["pct"] >= 0
+        unit = "$" if a["col"] == "spend" else ""
+        who = ""
+        if a["media"]:
+            # 貢獻度可能超過 100%（其他媒體往反方向動）或為負，那種數字寫在
+            # 句子裡只會讓人困惑，超出 0~100 就只給絕對量。
+            share = a["media_share"]
+            share_txt = f"，佔 {share:.0f}%" if 0 <= share <= 100 else ""
+            who = (f"　主要來自 <b>{html.escape(a['media'])}</b>"
+                   f"（{a['media_delta']:+,.0f}{share_txt}）")
+            if a["campaign"]:
+                who += f"，其中 {html.escape(a['campaign'])} 變化最大"
+        # 花費變多不見得是壞事、安裝變少才是，方向無法一概而論，
+        # 這裡一律用中性的 warn，判斷留給看的人。
+        alerts.append((
+            "warn", f"{d} {a['metric']}{'暴增' if up else '驟減'}",
+            f"{unit}{a['base']:,.0f} → {unit}{a['cur']:,.0f}"
+            f"（{a['pct']:+.0f}% vs 前 {analysis.BASELINE_DAYS} 天日均）{who}"))
+    # 沒列出來的那幾筆用註腳帶過，不佔警示清單的版面
+    hidden_days = max(len(day_hits) - MAX_DAY_ALERTS, 0)
+
     if df_prev is not None and not df_prev.empty:
         # 媒體 CPI 變化
         c = df.groupby("media").agg(spend=("spend", "sum"),
@@ -325,11 +465,19 @@ def show_alerts(df: pd.DataFrame, df_prev: pd.DataFrame = None) -> None:
     if not alerts:
         st.caption("目前無重大警示。")
         return
-    # 惡化的排前面，改善的放最後
-    order = {"neg": 0, "warn": 1, "pos": 2}
-    alerts.sort(key=lambda a: order[a[0]])
+
+    # 單日偏離排最前面（那是剛發生的事），再來是惡化，改善放最後
+    def _rank(a):
+        if "暴增" in a[1] or "驟減" in a[1]:
+            return 0
+        return {"neg": 1, "warn": 2, "pos": 3}[a[0]]
+
+    alerts.sort(key=_rank)
     st.markdown("".join(theme.alert(lv, tag, msg) for lv, tag, msg in alerts),
                 unsafe_allow_html=True)
+    if hidden_days:
+        st.caption(f"另有 {hidden_days} 筆單日偏離達到門檻但幅度較小；"
+                   f"把門檻調高，或用下方趨勢圖點選該日期逐一查看。")
 
 
 def show_media_compare(df: pd.DataFrame) -> None:
@@ -1279,14 +1427,36 @@ tab_overview, tab_media, tab_geo, tab_deep = st.tabs([
 with tab_overview:
     show_kpis(df, df_prev)
 
-    st.markdown(theme.section("異常警示", "與對比期比較後值得看一眼的變化"),
+    st.markdown(theme.section("異常警示", "單日偏離排在前面，期間對比排在後面"),
                 unsafe_allow_html=True)
-    show_alerts(df, df_prev)
+    _th = st.segmented_control(
+        "單日警示門檻", ["15%", "20%", "30%"], default="15%",
+        key="alert_threshold",
+        help="當天總量偏離前 7 天日均超過這個幅度才警示。"
+             "另外要求安裝變化滿 100 個、花費變化滿 $500，避免小數字的百分比雜訊。"
+    ) or "15%"
+    show_alerts(df, df_prev, float(_th.rstrip("%")))
 
-    st.markdown(theme.section("每日趨勢", "柱＝花費，線＝安裝與 CPI，▲＝當天有廣告操作"),
+    st.markdown(theme.section("每日趨勢",
+                              "柱＝花費，線＝安裝與 CPI，▲＝當天有廣告操作；點某一天可看變化來源"),
                 unsafe_allow_html=True)
+    _view = st.segmented_control("檢視", ["總量", "依媒體"], default="總量",
+                                 key="trend_view") or "總量"
     _ops = get_filtered_ops(date_range, media_choice)
-    show_daily_trend(df, _ops)
+    _picked = show_daily_trend(df, _ops, stacked=(_view == "依媒體"))
+
+    # ── 單日歸因：點圖或用下拉選日期都可以 ──
+    _days = [pd.Timestamp(d) for d in sorted(df["date"].dt.normalize().unique())]
+    _opts = ["（不選）"] + [d.strftime("%Y-%m-%d") for d in _days]
+    if _picked is not None:
+        # 點圖的結果直接寫進下拉的狀態，兩個入口共用同一個選擇
+        st.session_state["attr_day"] = _picked.strftime("%Y-%m-%d")
+    # 換篩選之後日期清單會變，舊的選擇可能已經不在清單裡
+    if st.session_state.get("attr_day") not in _opts:
+        st.session_state["attr_day"] = "（不選）"
+    _day = st.selectbox("看哪一天的變化來源", _opts, key="attr_day")
+    if _day != "（不選）":
+        show_day_attribution(df, pd.Timestamp(_day))
 
     st.markdown(theme.section("媒體分布"), unsafe_allow_html=True)
     show_media_mix(df)

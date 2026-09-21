@@ -420,7 +420,8 @@ def spark_css(values: list, color: str = ACCENT_HI, bars: int = 14) -> str:
 
 def kpi_card(label: str, value: str, delta_pct: float | None = None,
              category: str = "vol", inverse: bool = False,
-             spark: list | None = None, full: str = "") -> str:
+             spark: list | None = None, full: str = "",
+             delta_text: str | None = "無對比期") -> str:
     """KPI 卡。
 
     label      指標名稱（不含 emoji，層級靠字級字重）
@@ -432,7 +433,10 @@ def kpi_card(label: str, value: str, delta_pct: float | None = None,
     full       完整數值；value 被縮寫時放進 title，hover 可看原始數字
     """
     if delta_pct is None:
-        delta = '<div class="of-kpi-delta of-kpi-flat">無對比期</div>'
+        # delta_text=None 代表這張卡本來就沒有比較對象（例如歸因的「當天」
+        # 那張），硬寫「無對比期」會讓人以為是資料缺漏
+        delta = (f'<div class="of-kpi-delta of-kpi-flat">{delta_text}</div>'
+                 if delta_text else "")
     else:
         is_up = delta_pct >= 0
         good = (not is_up) if inverse else is_up

@@ -191,5 +191,21 @@ _, r = run("TikTok 快篩＝需要注意", {"deep_tab": "TikTok",
                                      "qf_grid_cmp_TikTok": "需要注意"})
 ok &= r
 
+# 單日歸因
+_, r = run("單日歸因：安裝", {"attr_day": "2026-09-12"})
+ok &= r
+_, r = run("單日歸因：花費", {"attr_day": "2026-09-12", "attr_metric": "花費"})
+ok &= r
+_, r = run("單日歸因：期間第一天（基準期不足 7 天）", {"attr_day": "2026-09-01"})
+ok &= r
+_, r = run("單日歸因 + 點一個 Campaign 看走勢",
+           {"attr_day": "2026-09-12"}, select=1)
+ok &= r
+_, r = run("趨勢圖依媒體堆疊", {"trend_view": "依媒體"})
+ok &= r
+for th in ["15%", "20%", "30%"]:
+    _, r = run(f"警示門檻 {th}", {"alert_threshold": th})
+    ok &= r
+
 print("\n結果：", "全部通過" if ok else "有失敗")
 sys.exit(0 if ok else 1)

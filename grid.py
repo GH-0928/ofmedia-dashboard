@@ -24,7 +24,7 @@ _FMT_JS = {
     "cost": JsCode("function(p){return p.value==null?'':'$'+Number(p.value)"
                    ".toFixed(2);}"),
     "int": JsCode("function(p){return p.value==null?'':Number(p.value)"
-                  ".toLocaleString('en-US');}"),
+                  ".toLocaleString('en-US',{maximumFractionDigits:0});}"),
     "pct": JsCode("function(p){return p.value==null?'':Number(p.value)"
                   ".toFixed(2)+'%';}"),
 }
@@ -33,10 +33,13 @@ _NUMERIC = set(_FMT_JS)
 # 占比欄：用儲存格背景的漸層畫長條。AgGrid 的 React 版本要求 cellRenderer
 # 回傳 React 元素，回傳 DOM 節點會讓整個元件掛掉（React error #31），所以
 # 這裡改走 cellStyle —— 它只回傳純物件，不碰 DOM。
+# 貢獻度可能是負的（這個項目往反方向動），長度取絕對值、顏色轉紅，
+# 才看得出「它其實是在抵銷整體變化」。
 _BAR_STYLE_JS = JsCode(
-    "function(p){const v=Math.max(0,Math.min(100,Number(p.value)||0));"
-    "return {background:'linear-gradient(to right, rgba(59,130,246,0.55) '"
-    "+v+'%, transparent '+v+'%)'};}"
+    "function(p){const raw=Number(p.value)||0;"
+    "const v=Math.max(0,Math.min(100,Math.abs(raw)));"
+    "const c=raw<0?'rgba(248,113,113,0.55)':'rgba(59,130,246,0.55)';"
+    "return {background:'linear-gradient(to right, '+c+' '+v+'%, transparent '+v+'%)'};}"
 )
 
 # 走勢欄：值在 Python 端轉成一串 CSS background（見 theme.spark_css），
