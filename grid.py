@@ -30,6 +30,27 @@ _FMT_JS = {
 }
 _NUMERIC = set(_FMT_JS)
 
+# 變化欄：一格同時給絕對值與百分比（只看百分比會被小數字騙，只看絕對值
+# 又看不出嚴重程度）。百分比放在同一列資料的 <field>_pct 欄。
+_CHANGE_FMT = JsCode(
+    "function(p){const d=p.value;"
+    "if(d==null||isNaN(d))return '';"
+    "const pct=p.data[p.colDef.field.replace('_delta','_pct')];"
+    "const money=p.colDef.field.indexOf('spend')===0;"
+    "const av=Math.abs(d).toLocaleString('en-US',{maximumFractionDigits:0});"
+    "const head=(d>=0?'▲ ':'▼ ')+(money?'$':'')+av;"
+    "return (pct==null||isNaN(pct))?head:head+'　'+(pct>=0?'+':'')+pct.toFixed(0)+'%';}"
+)
+# 漲藍跌橘：花費變多不見得是壞事，用紅綠會先替使用者下judgement
+_CHANGE_STYLE = JsCode(
+    "function(p){const d=p.value;if(d==null||isNaN(d))return null;"
+    "return {color:d>=0?'" + theme.ACCENT_HI + "':'" + theme.CPM_C + "',"
+    "fontWeight:'600'};}"
+)
+# 主要變化來源：一格兩行（花費一行、安裝一行）
+_SOURCE_STYLE = {"white-space": "pre-line", "line-height": "1.45",
+                 "font-size": "12px", "color": theme.TEXT_MID}
+
 # 占比欄：用儲存格背景的漸層畫長條。AgGrid 的 React 版本要求 cellRenderer
 # 回傳 React 元素，回傳 DOM 節點會讓整個元件掛掉（React error #31），所以
 # 這裡改走 cellStyle —— 它只回傳純物件，不碰 DOM。
@@ -52,16 +73,19 @@ _SPARK_HIDE_TEXT = JsCode("function(p){return '';}")
 
 def col(field: str, label: str, fmt: str = "text", *, width: int | None = None,
         flex: int | None = None, help: str | None = None,
-        pinned: str | None = None) -> dict:
+        pinned: str | None = None, hidden: bool = False,
+        min_width: int | None = None) -> dict:
     """描述一個欄位。
 
     fmt："text" / "money"（整數金額）/ "cost"（兩位小數金額）/ "int" /
          "pct"（資料本身是 0-100）/ "bar"（占比，儲存格底色畫成長條）/
-         "spark"（走勢，值是數列，會轉成區塊字元）
+         "spark"（走勢，值是數列）/ "change"（變化量＋百分比，漲藍跌橘）
+    hidden：不顯示，但選取時仍會跟著回傳（例如夾帶日期 key）
     pinned："left" 可把名稱欄釘在左邊，水平捲動時不會滑走
     """
     return {"field": field, "label": label, "fmt": fmt, "width": width,
-            "flex": flex, "help": help, "pinned": pinned}
+            "flex": flex, "help": help, "pinned": pinned, "hidden": hidden,
+            "min_width": min_width}
 
 
 def _grid_theme() -> StAggridTheme:
@@ -117,6 +141,14 @@ def data_grid(df: pd.DataFrame, cols: list, key: str, *,
             kw["type"] = ["numericColumn"]
             kw["valueFormatter"] = _FMT_JS["pct"]
             kw["cellStyle"] = _BAR_STYLE_JS
+        elif c["fmt"] == "change":
+            kw["type"] = ["numericColumn"]
+            kw["valueFormatter"] = _CHANGE_FMT
+            kw["cellStyle"] = _CHANGE_STYLE
+        elif c["fmt"] == "source":
+            kw["cellStyle"] = _SOURCE_STYLE
+            kw["sortable"] = False
+            kw["tooltipField"] = c["field"]   # 名稱被截斷時 hover 看完整內容
         elif c["fmt"] == "spark":
             kw["cellStyle"] = _SPARK_STYLE_JS
             kw["valueFormatter"] = _SPARK_HIDE_TEXT   # 不要把 CSS 字串印出來
@@ -132,6 +164,8 @@ def data_grid(df: pd.DataFrame, cols: list, key: str, *,
             kw["minWidth"] = c.get("min_width") or 170
         if c["pinned"]:
             kw["pinned"] = c["pinned"]
+        if c.get("hidden"):
+            kw["hide"] = True
         if c["help"]:
             kw["headerTooltip"] = c["help"]
         gb.configure_column(c["field"], headerName=c["label"], **kw)

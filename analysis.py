@@ -89,3 +89,85 @@ def day_anomalies(df: pd.DataFrame, threshold_pct: float) -> list:
             })
     found.sort(key=lambda a: (a["day"], -abs(a["pct"])))
     return found
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  逐日變化表
+# ══════════════════════════════════════════════════════════════════════
+WEEKDAY_ZH = ["一", "二", "三", "四", "五", "六", "日"]
+
+# 基準的兩種取法：跟前一天比看突變，跟前 7 天日均比看趨勢偏離
+BASIS_PREV = "比前一日"
+BASIS_AVG = f"比前 {BASELINE_DAYS} 日均值"
+
+
+def _baseline(frame: pd.DataFrame, basis: str) -> pd.DataFrame:
+    """把每日數列換成對應的基準線。
+
+    closed="left" 是關鍵：滾動平均必須排除當天，否則當天的異常值會被算進
+    自己的基準裡，把差異稀釋掉。
+    """
+    if basis == BASIS_PREV:
+        return frame.shift(1)
+    return frame.rolling(BASELINE_DAYS, min_periods=1, closed="left").mean()
+
+
+def _top_source(df: pd.DataFrame, metric_col: str, basis: str,
+                index) -> pd.DataFrame:
+    """每天變化最大的那個 campaign（含它的變化量）。
+
+    整張表一次算完，不逐日跑 groupby —— 期間拉到一個月、兩個指標的話，
+    逐日做會是幾十次 groupby。
+    """
+    import numpy as np
+
+    pv = df.pivot_table(index="day", columns="campaign", values=metric_col,
+                        aggfunc="sum", fill_value=0).reindex(index, fill_value=0)
+    delta = (pv - _baseline(pv, basis))
+    arr = delta.to_numpy(dtype="float64")
+    names, values = [], []
+    for row in arr:
+        if np.all(np.isnan(row)) or row.size == 0:
+            names.append("")
+            values.append(float("nan"))
+            continue
+        pos = int(np.nanargmax(np.abs(row)))
+        names.append(str(delta.columns[pos]))
+        values.append(float(row[pos]))
+    return pd.DataFrame({"name": names, "delta": values}, index=index)
+
+
+def daily_changes(df: pd.DataFrame, basis: str = BASIS_PREV) -> pd.DataFrame:
+    """逐日變化表：每天的花費與安裝、跟基準的差，以及主要變化來源。
+
+    回傳的欄位都是數值型別（顯示格式交給表格層），日期另外給一個帶星期的
+    標籤，週末效應才看得出來。
+    """
+    if df.empty:
+        return pd.DataFrame()
+    d = df.copy()
+    d["day"] = d["date"].dt.normalize()
+    daily = d.groupby("day")[["spend", "installs"]].sum().sort_index()
+    base = _baseline(daily, basis)
+
+    media_of = d.drop_duplicates("campaign").set_index("campaign")["media"].to_dict()
+    out = pd.DataFrame(index=daily.index)
+    out["day"] = daily.index
+    out["day_label"] = [f"{t.strftime('%m-%d')} {WEEKDAY_ZH[t.weekday()]}"
+                        for t in daily.index]
+
+    for col in ("spend", "installs"):
+        out[col] = daily[col]
+        delta = daily[col] - base[col]
+        out[f"{col}_delta"] = delta
+        # 基準為 0（期間第一天、或那天之前完全沒跑）時百分比沒有意義
+        out[f"{col}_pct"] = (delta / base[col] * 100).replace(
+            [float("inf"), float("-inf")], float("nan"))
+        top = _top_source(d, col, basis, daily.index)
+        out[f"{col}_src"] = [
+            f"{n}（{media_of.get(n, '?')}）" if n else ""
+            for n in top["name"]]
+        out[f"{col}_src_delta"] = top["delta"].values
+
+    # 最新的日子放最上面：每天進來先看昨天發生什麼事
+    return out.sort_index(ascending=False).reset_index(drop=True)

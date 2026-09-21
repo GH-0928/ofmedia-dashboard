@@ -192,20 +192,17 @@ _, r = run("TikTok 快篩＝需要注意", {"deep_tab": "TikTok",
 ok &= r
 
 # 單日歸因
-_, r = run("單日歸因：安裝", {"attr_day": "2026-09-12"})
+_, r = run("逐日變化表（預設比前一日）")
 ok &= r
-_, r = run("單日歸因：花費", {"attr_day": "2026-09-12", "attr_metric": "花費"})
+_, r = run("逐日變化表：比前 7 日均值",
+           {"daily_basis": "比前 7 日均值"})
 ok &= r
-_, r = run("單日歸因：期間第一天（基準期不足 7 天）", {"attr_day": "2026-09-01"})
+_, r = run("逐日變化 + 選一天看歸因", select=1)
 ok &= r
-_, r = run("單日歸因 + 點一個 Campaign 看走勢",
-           {"attr_day": "2026-09-12"}, select=1)
+_, r = run("單日歸因：改看花費", {"attr_metric": "花費"}, select=1)
 ok &= r
 _, r = run("趨勢圖依媒體堆疊", {"trend_view": "依媒體"})
 ok &= r
-for th in ["15%", "20%", "30%"]:
-    _, r = run(f"警示門檻 {th}", {"alert_threshold": th})
-    ok &= r
 
 print("\n結果：", "全部通過" if ok else "有失敗")
 sys.exit(0 if ok else 1)

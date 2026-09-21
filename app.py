@@ -234,6 +234,66 @@ def _picked_date(event) -> pd.Timestamp:
     return None
 
 
+def show_daily_changes(df: pd.DataFrame) -> pd.Timestamp:
+    """逐日變化表：每天的花費與安裝、與基準的差、主要變化來源。
+
+    這是「哪天出事、誰造成的」的主要入口：期間內每一天都攤開，不必先在
+    趨勢圖上找到跳動再點進去。回傳被點選的日期（沒點就是 None）。
+    """
+    basis = st.segmented_control(
+        "基準", [analysis.BASIS_PREV, analysis.BASIS_AVG],
+        default=analysis.BASIS_PREV, key="daily_basis",
+        help="比前一日看的是突變；比前 7 日均值看的是偏離常態，"
+             "後者不會被前一天自己的異常帶偏。"
+    ) or analysis.BASIS_PREV
+
+    table = analysis.daily_changes(df, basis)
+    if table.empty:
+        st.caption("此條件下無資料。")
+        return None
+
+    def _src(row):
+        """一格兩行：花費一行、安裝一行，括號裡是它屬於哪個媒體。
+
+        金額排在 campaign 名稱前面 —— 欄寬不夠時被截掉的會是名稱尾巴，
+        而不是那個決定要不要細看的數字（完整內容放在 tooltip）。
+        """
+        lines = []
+        for col, name, money in (("spend", "花費", True), ("installs", "安裝", False)):
+            src, delta = row[f"{col}_src"], row[f"{col}_src_delta"]
+            if not src or pd.isna(delta):
+                continue
+            amount = f"${abs(delta):,.0f}" if money else f"{abs(delta):,.0f}"
+            sign = "+" if delta >= 0 else "−"
+            short = src if len(src) <= 26 else src[:25] + "…"
+            lines.append(f"{name}　{sign}{amount}　{short}")
+        return "\n".join(lines)
+
+    table["source"] = table.apply(_src, axis=1)
+    table["day_key"] = table["day"].dt.strftime("%Y-%m-%d")
+
+    sel = grid.data_grid(
+        table, [
+            grid.col("day_key", "", hidden=True),
+            # 變化欄的 valueFormatter 會去同一列找 <欄名>_pct 補上百分比，
+            # 所以這兩欄要一起帶進表格，只是不顯示
+            grid.col("spend_pct", "", hidden=True),
+            grid.col("installs_pct", "", hidden=True),
+            # 欄寬壓到剛好，讓「主要變化來源」在 1280 寬的視窗也不必水平捲
+            grid.col("day_label", "日期", width=92, pinned="left"),
+            grid.col("spend", "花費", "money", width=112),
+            grid.col("spend_delta", "vs 基準", "change", width=150),
+            grid.col("installs", "安裝", "int", width=96),
+            grid.col("installs_delta", "vs 基準", "change", width=140),
+            grid.col("source", "主要變化來源", "source", flex=2, min_width=250),
+        ],
+        key="grid_daily_changes", selection="single",
+        row_height=52, max_height=620)
+
+    picked = grid.selected_values(sel, "day_key")
+    return pd.Timestamp(picked[0]) if picked else None
+
+
 def show_day_attribution(df: pd.DataFrame, day: pd.Timestamp,
                          key_prefix: str = "attr") -> None:
     """某一天的變化歸因：整體 → 媒體 → Campaign。"""
@@ -380,43 +440,13 @@ def show_media_mix(df: pd.DataFrame) -> None:
         col.plotly_chart(fig, width='stretch', config=theme.PLOTLY_CONFIG)
 
 
-def show_alerts(df: pd.DataFrame, df_prev: pd.DataFrame = None,
-                day_threshold: float = 15.0) -> None:
-    """異常清單：期間 vs 對比期的變化，加上期間內的單日偏離。
+def show_alerts(df: pd.DataFrame, df_prev: pd.DataFrame = None) -> None:
+    """期間層級的異常：與對比期相比的成本與量體變化、預算集中度。
 
-    level：neg 惡化 / pos 改善 / warn 注意。
+    單日的跳動交給「逐日變化」表，那裡每一天都列出來了，警示再講一次只是
+    洗版，也省掉了門檻要設多少的問題。
     """
     alerts = []
-
-    # ── 單日偏離：哪一天跳動，以及是誰造成的 ──
-    # 幅度大的排前面，只列前幾條。門檻放寬時一個月可能有十幾天達標，
-    # 全部列出來會把真正嚴重的那兩天洗掉。
-    MAX_DAY_ALERTS = 5
-    day_hits = analysis.day_anomalies(df, day_threshold)
-    day_hits.sort(key=lambda a: -abs(a["pct"]))
-    for a in day_hits[:MAX_DAY_ALERTS]:
-        d = pd.Timestamp(a["day"]).strftime("%m/%d")
-        up = a["pct"] >= 0
-        unit = "$" if a["col"] == "spend" else ""
-        who = ""
-        if a["media"]:
-            # 貢獻度可能超過 100%（其他媒體往反方向動）或為負，那種數字寫在
-            # 句子裡只會讓人困惑，超出 0~100 就只給絕對量。
-            share = a["media_share"]
-            share_txt = f"，佔 {share:.0f}%" if 0 <= share <= 100 else ""
-            who = (f"　主要來自 <b>{html.escape(a['media'])}</b>"
-                   f"（{a['media_delta']:+,.0f}{share_txt}）")
-            if a["campaign"]:
-                who += f"，其中 {html.escape(a['campaign'])} 變化最大"
-        # 花費變多不見得是壞事、安裝變少才是，方向無法一概而論，
-        # 這裡一律用中性的 warn，判斷留給看的人。
-        alerts.append((
-            "warn", f"{d} {a['metric']}{'暴增' if up else '驟減'}",
-            f"{unit}{a['base']:,.0f} → {unit}{a['cur']:,.0f}"
-            f"（{a['pct']:+.0f}% vs 前 {analysis.BASELINE_DAYS} 天日均）{who}"))
-    # 沒列出來的那幾筆用註腳帶過，不佔警示清單的版面
-    hidden_days = max(len(day_hits) - MAX_DAY_ALERTS, 0)
-
     if df_prev is not None and not df_prev.empty:
         # 媒體 CPI 變化
         c = df.groupby("media").agg(spend=("spend", "sum"),
@@ -466,18 +496,12 @@ def show_alerts(df: pd.DataFrame, df_prev: pd.DataFrame = None,
         st.caption("目前無重大警示。")
         return
 
-    # 單日偏離排最前面（那是剛發生的事），再來是惡化，改善放最後
-    def _rank(a):
-        if "暴增" in a[1] or "驟減" in a[1]:
-            return 0
-        return {"neg": 1, "warn": 2, "pos": 3}[a[0]]
-
-    alerts.sort(key=_rank)
+    # 惡化的排前面，改善的放最後
+    order = {"neg": 0, "warn": 1, "pos": 2}
+    alerts.sort(key=lambda a: order[a[0]])
     st.markdown("".join(theme.alert(lv, tag, msg) for lv, tag, msg in alerts),
                 unsafe_allow_html=True)
-    if hidden_days:
-        st.caption(f"另有 {hidden_days} 筆單日偏離達到門檻但幅度較小；"
-                   f"把門檻調高，或用下方趨勢圖點選該日期逐一查看。")
+
 
 
 def show_media_compare(df: pd.DataFrame) -> None:
@@ -1427,15 +1451,9 @@ tab_overview, tab_media, tab_geo, tab_deep = st.tabs([
 with tab_overview:
     show_kpis(df, df_prev)
 
-    st.markdown(theme.section("異常警示", "單日偏離排在前面，期間對比排在後面"),
+    st.markdown(theme.section("異常警示", "與對比期相比的成本與量體變化"),
                 unsafe_allow_html=True)
-    _th = st.segmented_control(
-        "單日警示門檻", ["15%", "20%", "30%"], default="15%",
-        key="alert_threshold",
-        help="當天總量偏離前 7 天日均超過這個幅度才警示。"
-             "另外要求安裝變化滿 100 個、花費變化滿 $500，避免小數字的百分比雜訊。"
-    ) or "15%"
-    show_alerts(df, df_prev, float(_th.rstrip("%")))
+    show_alerts(df, df_prev)
 
     st.markdown(theme.section("每日趨勢",
                               "柱＝花費，線＝安裝與 CPI，▲＝當天有廣告操作；點某一天可看變化來源"),
@@ -1445,18 +1463,18 @@ with tab_overview:
     _ops = get_filtered_ops(date_range, media_choice)
     _picked = show_daily_trend(df, _ops, stacked=(_view == "依媒體"))
 
-    # ── 單日歸因：點圖或用下拉選日期都可以 ──
-    _days = [pd.Timestamp(d) for d in sorted(df["date"].dt.normalize().unique())]
-    _opts = ["（不選）"] + [d.strftime("%Y-%m-%d") for d in _days]
-    if _picked is not None:
-        # 點圖的結果直接寫進下拉的狀態，兩個入口共用同一個選擇
-        st.session_state["attr_day"] = _picked.strftime("%Y-%m-%d")
-    # 換篩選之後日期清單會變，舊的選擇可能已經不在清單裡
-    if st.session_state.get("attr_day") not in _opts:
-        st.session_state["attr_day"] = "（不選）"
-    _day = st.selectbox("看哪一天的變化來源", _opts, key="attr_day")
-    if _day != "（不選）":
-        show_day_attribution(df, pd.Timestamp(_day))
+    # ── 逐日變化：期間內每一天都攤開，點一列看該日完整的變化排行 ──
+    st.markdown(theme.section("逐日變化",
+                              "每天跟基準比；點任一列看該日完整的媒體與 Campaign 排行"),
+                unsafe_allow_html=True)
+    _day = show_daily_changes(df)
+    # 趨勢圖上點的那一天也算數，兩個入口共用同一個歸因區塊
+    _day = _day if _day is not None else _picked
+    if _day is not None:
+        st.markdown(theme.section(f"{_day.strftime('%m-%d')} 變化來源",
+                                  "與上表相同的基準"),
+                    unsafe_allow_html=True)
+        show_day_attribution(df, _day)
 
     st.markdown(theme.section("媒體分布"), unsafe_allow_html=True)
     show_media_mix(df)
