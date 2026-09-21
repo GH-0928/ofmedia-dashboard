@@ -62,6 +62,20 @@ CPI 惡化、安裝驟降、預算集中。
 | `.streamlit/config.toml` | Streamlit 原生元件的主題色 |
 | `dev/` | 開發工具：離線煙霧測試與假資料預覽（不需要憑證與密碼，見 `dev/README.md`）|
 
+## 在本機跑（看真實資料，不用密碼）
+
+雙擊 **`啟動儀表板.bat`**，瀏覽器會開 <http://localhost:8510>。
+
+- 資料是**真的**（直接讀同一個 Google Sheet），不是假資料
+- **不用輸入密碼**：`.bat` 會設 `OFMEDIA_LOCAL=1`，`auth.py` 偵測到本機模式就跳過登入閘
+- 憑證用既有的 OAuth token（`Auto_Claude/OceanFishooter/dashboard_sheet/sheet_token.json`），
+  過期會自動 refresh。換位置的話用環境變數 `OFMEDIA_SHEET_TOKEN` 指定
+- 關掉那個黑色視窗就是關掉服務
+
+**為什麼雲端不會被這個跳過密碼**：`local_mode()` 要「有本機旗標」**而且**
+「看不到 `st.secrets['gcp_service_account']`」兩個條件同時成立。雲端一定有
+service account，所以永遠走密碼流程。旗標檔 `.local_mode` 也列在 `.gitignore`。
+
 ## 開發流程
 
 改完 UI 照這個順序驗：

@@ -8,3 +8,6 @@ venv/
 .idea/
 .DS_Store
 Thumbs.db
+
+# 本機模式旗標（存在就跳過密碼，絕不能進版控）
+.local_mode

@@ -265,7 +265,7 @@ def show_daily_changes(df: pd.DataFrame) -> pd.Timestamp:
                 continue
             amount = f"${abs(delta):,.0f}" if money else f"{abs(delta):,.0f}"
             sign = "+" if delta >= 0 else "−"
-            short = src if len(src) <= 26 else src[:25] + "…"
+            short = src if len(src) <= 34 else src[:33] + "…"
             lines.append(f"{name}　{sign}{amount}　{short}")
         return "\n".join(lines)
 
@@ -285,7 +285,7 @@ def show_daily_changes(df: pd.DataFrame) -> pd.Timestamp:
             grid.col("spend_delta", "vs 基準", "change", width=150),
             grid.col("installs", "安裝", "int", width=96),
             grid.col("installs_delta", "vs 基準", "change", width=140),
-            grid.col("source", "主要變化來源", "source", flex=2, min_width=250),
+            grid.col("source", "主要變化來源", "source", flex=3, min_width=300),
         ],
         key="grid_daily_changes", selection="single",
         row_height=52, max_height=620)
@@ -945,7 +945,7 @@ def _level_columns(group_col: str, label: str, has_status: bool) -> list:
     if has_status:
         cols.append(grid.col("status_zh", "狀態", width=96))
     cols += [
-        grid.col(group_col, label, flex=2, pinned="left"),
+        grid.col(group_col, label, flex=2, pinned="left", min_width=280),
         grid.col("spend", "花費 ($)", "money", width=110),
         grid.col("installs", "安裝", "int", width=90),
         grid.col("cpi", "CPI", "cost", width=92, help="期間內：花費 / 安裝"),

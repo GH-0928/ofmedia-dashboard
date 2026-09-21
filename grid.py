@@ -48,8 +48,13 @@ _CHANGE_STYLE = JsCode(
     "fontWeight:'600'};}"
 )
 # 主要變化來源：一格兩行（花費一行、安裝一行）
-_SOURCE_STYLE = {"white-space": "pre-line", "line-height": "1.45",
-                 "font-size": "12px", "color": theme.TEXT_MID}
+# white-space 用 pre 而不是 pre-line：pre-line 會讓長名稱自動折行，
+# 真實的 campaign 名稱（OF_IOS_1.0_US_20260312_MAIA…）一折就變三四行，
+# 撐破列高還互相黏在一起。pre 只認我們自己放的換行，每行超長就被
+# ellipsis 截掉，兩行結構維持得住，完整內容在 tooltip。
+_SOURCE_STYLE = {"white-space": "pre", "line-height": "1.45",
+                 "font-size": "12px", "color": theme.TEXT_MID,
+                 "overflow": "hidden", "text-overflow": "ellipsis"}
 
 # 占比欄：用儲存格背景的漸層畫長條。AgGrid 的 React 版本要求 cellRenderer
 # 回傳 React 元素，回傳 DOM 節點會讓整個元件掛掉（React error #31），所以
@@ -149,6 +154,10 @@ def data_grid(df: pd.DataFrame, cols: list, key: str, *,
             kw["cellStyle"] = _SOURCE_STYLE
             kw["sortable"] = False
             kw["tooltipField"] = c["field"]   # 名稱被截斷時 hover 看完整內容
+        elif c["fmt"] == "text":
+            # 真實的 campaign / ad group 名稱動輒四十幾個字元，欄寬再大也會
+            # 截到；至少讓 hover 看得到完整內容
+            kw["tooltipField"] = c["field"]
         elif c["fmt"] == "spark":
             kw["cellStyle"] = _SPARK_STYLE_JS
             kw["valueFormatter"] = _SPARK_HIDE_TEXT   # 不要把 CSS 字串印出來

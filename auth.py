@@ -1,12 +1,39 @@
 # -*- coding: utf-8 -*-
-"""簡易密碼登入閘。密碼存在 st.secrets['auth']['password']。"""
+"""簡易密碼登入閘。密碼存在 st.secrets['auth']['password']。
+
+本機模式（見 local_mode()）會跳過密碼 —— 那是自己機器上的單人使用，
+每次開都要打一次密碼只是阻力。雲端絕不會跳過，條件寫得很保守：
+必須「有本機旗標」而且「看不到雲端的 service account」兩者同時成立。
+"""
+import os
+
 import streamlit as st
 
 import theme
 
+# 放在 repo 根目錄的空檔案，存在就代表本機模式（已列入 .gitignore）
+LOCAL_FLAG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               ".local_mode")
+
+
+def local_mode() -> bool:
+    """是否為本機模式。兩個條件都成立才算，少一個就照常要密碼。"""
+    flagged = (os.environ.get("OFMEDIA_LOCAL") == "1"
+               or os.path.exists(LOCAL_FLAG_FILE))
+    if not flagged:
+        return False
+    # 看得到雲端的 service account 就代表這是雲端（或本機刻意接了雲端憑證），
+    # 這種情況一律要密碼，避免旗標被誤帶上線就把儀表板公開出去
+    try:
+        if "gcp_service_account" in st.secrets:
+            return False
+    except Exception:
+        pass
+    return True
+
 
 def require_password() -> None:
-    if st.session_state.get("authed"):
+    if st.session_state.get("authed") or local_mode():
         return
 
     # 這兩條只在登入頁生效：規則綁在登入卡片的 #of-login-page 標記上。

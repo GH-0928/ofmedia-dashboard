@@ -4,6 +4,7 @@
 讀 6 個 _raw 分頁(ASA / Meta / Google / TikTok / Applovin / Moloco),
 統合成共通欄位的 DataFrame 給 dashboard 用。
 """
+import os
 import socket
 import ssl
 import time
@@ -85,9 +86,59 @@ RAW_TABS = {
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 
 
-def _get_credentials() -> Credentials:
-    info = dict(st.secrets["gcp_service_account"])
-    return Credentials.from_service_account_info(info, scopes=SCOPES)
+# 本機執行時退回既有的 OAuth 使用者 token（與 media_daily 同一份）。
+# 依序找這幾個位置，找到哪個算哪個。
+LOCAL_TOKEN_CANDIDATES = [
+    os.environ.get("OFMEDIA_SHEET_TOKEN", ""),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                 "..", "..", "Auto_Claude", "OceanFishooter",
+                 "dashboard_sheet", "sheet_token.json"),
+    os.path.expanduser(
+        r"~/Desktop/Auto_Claude/OceanFishooter/dashboard_sheet/sheet_token.json"),
+]
+
+
+def _local_token_path() -> str:
+    for path in LOCAL_TOKEN_CANDIDATES:
+        if path and os.path.exists(path):
+            return os.path.abspath(path)
+    return ""
+
+
+def _get_credentials():
+    """雲端用 service account，本機退回 OAuth 使用者 token。
+
+    雲端的 secrets 一定有 gcp_service_account，走第一條；本機沒有 secrets
+    檔案時，存取 st.secrets 會直接丟例外，所以要包起來再往下退。
+    """
+    try:
+        if "gcp_service_account" in st.secrets:
+            info = dict(st.secrets["gcp_service_account"])
+            return Credentials.from_service_account_info(info, scopes=SCOPES)
+    except Exception:
+        pass
+
+    token_path = _local_token_path()
+    if not token_path:
+        raise FileNotFoundError(
+            "找不到憑證。雲端請設 st.secrets['gcp_service_account']；"
+            "本機請確認 dashboard_sheet/sheet_token.json 存在，"
+            "或用環境變數 OFMEDIA_SHEET_TOKEN 指定它的位置。")
+
+    from google.auth.transport.requests import Request
+    from google.oauth2.credentials import Credentials as UserCredentials
+
+    # 不指定 scopes：沿用 token 自己帶的授權範圍，否則會與既有 token 對不上
+    creds = UserCredentials.from_authorized_user_file(token_path)
+    if creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+        # refresh 後把新的 access token 寫回去，下次啟動就不用再換一次
+        try:
+            with open(token_path, "w", encoding="utf-8") as f:
+                f.write(creds.to_json())
+        except OSError:
+            pass
+    return creds
 
 
 @st.cache_resource
